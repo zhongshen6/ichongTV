@@ -1,0 +1,1039 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>i重TV</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 0;
+      background: #f6f7f9;
+      color: #1f2328;
+    }
+    main {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    h1 {
+      font-size: 22px;
+      margin: 0 0 16px;
+    }
+    section {
+      background: #fff;
+      border: 1px solid #d8dee4;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 14px;
+    }
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      margin: 10px 0 5px;
+    }
+    input, textarea {
+      box-sizing: border-box;
+      width: 100%;
+      border: 1px solid #c9d1d9;
+      border-radius: 6px;
+      padding: 9px 10px;
+      font: inherit;
+      background: #fff;
+    }
+    textarea {
+      min-height: 110px;
+      resize: vertical;
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 12px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px 14px;
+    }
+    .row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+    .action-row {
+      display: grid;
+      grid-template-columns: minmax(130px, 180px) repeat(5, auto);
+      gap: 8px;
+      align-items: end;
+      margin-top: 12px;
+    }
+    .action-row label {
+      margin: 0 0 5px;
+    }
+    button {
+      border: 1px solid #1f6feb;
+      background: #1f6feb;
+      color: #fff;
+      border-radius: 6px;
+      padding: 9px 12px;
+      font: inherit;
+      cursor: pointer;
+    }
+    button.secondary {
+      background: #fff;
+      color: #1f2328;
+      border-color: #c9d1d9;
+    }
+    button:disabled {
+      opacity: .55;
+      cursor: not-allowed;
+    }
+    .hint {
+      color: #57606a;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .inline-status {
+      color: #57606a;
+      font-size: 12px;
+      margin-top: 6px;
+      word-break: break-all;
+    }
+    .token-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin: 0 0 8px;
+      flex-wrap: nowrap;
+    }
+    .token-header label {
+      margin: 0;
+    }
+    .token-actions {
+      display: flex;
+      gap: 6px;
+      flex-wrap: nowrap;
+      white-space: nowrap;
+      margin-top: 0;
+    }
+    .token-actions button {
+      padding: 5px 8px;
+      font-size: 12px;
+      line-height: 1.2;
+    }
+    .token-grid {
+      display: grid;
+      gap: 10px;
+    }
+    .token-grid.count-1 {
+      grid-template-columns: 1fr;
+    }
+    .token-grid.count-2 {
+      grid-template-columns: 1fr;
+    }
+    .token-grid.count-4 {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .token-panel {
+      border: 1px solid #d8dee4;
+      border-radius: 8px;
+      padding: 10px;
+      background: #f6f8fa;
+    }
+    .token-panel[hidden] {
+      display: none;
+    }
+    .token-panel-title {
+      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .token-panel textarea {
+      min-height: 92px;
+      background: #fff;
+    }
+    .token-grid.multi .token-panel textarea {
+      min-height: 38px;
+      height: 38px;
+      resize: none;
+      overflow: hidden;
+      white-space: nowrap;
+    }
+    select {
+      box-sizing: border-box;
+      width: 100%;
+      border: 1px solid #c9d1d9;
+      border-radius: 6px;
+      padding: 9px 10px;
+      font: inherit;
+      background: #fff;
+    }
+    #map {
+      position: relative;
+      height: 320px;
+      border: 1px solid #c9d1d9;
+      border-radius: 8px;
+      overflow: hidden;
+      margin-top: 10px;
+      background: #dfe7ef;
+      cursor: grab;
+      user-select: none;
+      touch-action: none;
+    }
+    #map.dragging {
+      cursor: grabbing;
+    }
+    #map .tile {
+      position: absolute;
+      width: 256px;
+      height: 256px;
+      image-rendering: auto;
+    }
+    #mapMarker {
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border: 3px solid #fff;
+      background: #d1242f;
+      box-shadow: 0 1px 6px rgba(0,0,0,.45);
+      transform: translate(-50%, -50%);
+      left: 50%;
+      top: 50%;
+      pointer-events: none;
+      z-index: 3;
+    }
+    .map-tools {
+      position: absolute;
+      right: 10px;
+      top: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      z-index: 4;
+    }
+    .map-tools button {
+      width: 38px;
+      min-width: 38px;
+      height: 38px;
+      padding: 0;
+      font-size: 20px;
+      line-height: 1;
+      background: #fff;
+      color: #1f2328;
+      border-color: #8c959f;
+      box-shadow: 0 1px 4px rgba(27,31,36,.2);
+      touch-action: manipulation;
+    }
+    .status {
+      white-space: pre-wrap;
+      background: #0d1117;
+      color: #e6edf3;
+      border-radius: 6px;
+      padding: 12px;
+      min-height: 90px;
+      overflow: auto;
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 12px;
+    }
+    @media (max-width: 680px) {
+      main { padding: 14px; }
+      .grid { grid-template-columns: 1fr; }
+      .token-grid.count-4 { grid-template-columns: 1fr; }
+      .action-row { grid-template-columns: 1fr; }
+      button { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>i重TV</h1>
+
+    <section>
+      <div class="token-header">
+        <label>Token</label>
+        <div class="token-actions">
+          <button class="secondary" id="removeTokenBtn">减少 token</button>
+          <button class="secondary" id="addTokenBtn">添加 token</button>
+        </div>
+      </div>
+      <div id="tokenGrid" class="token-grid count-1">
+        <div class="token-panel" data-token-panel="0">
+          <div class="token-panel-title">账号 1</div>
+          <textarea id="token0" class="token-input" placeholder="粘贴 Bearer 后面的 token，不要带 Bearer"></textarea>
+          <div id="tokenInfo0" class="inline-status">Token 未填写</div>
+        </div>
+        <div class="token-panel" data-token-panel="1" hidden>
+          <div class="token-panel-title">账号 2</div>
+          <textarea id="token1" class="token-input" placeholder="粘贴第二个 token"></textarea>
+          <div id="tokenInfo1" class="inline-status">Token 未填写</div>
+        </div>
+        <div class="token-panel" data-token-panel="2" hidden>
+          <div class="token-panel-title">账号 3</div>
+          <textarea id="token2" class="token-input" placeholder="粘贴第三个 token"></textarea>
+          <div id="tokenInfo2" class="inline-status">Token 未填写</div>
+        </div>
+        <div class="token-panel" data-token-panel="3" hidden>
+          <div class="token-panel-title">账号 4</div>
+          <textarea id="token3" class="token-input" placeholder="粘贴第四个 token"></textarea>
+          <div id="tokenInfo3" class="inline-status">Token 未填写</div>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div>
+          <label for="courseSelect">课程</label>
+          <select id="courseSelect">
+            <option value="">先获取课程列表，或手动填写</option>
+          </select>
+        </div>
+        <div>
+          <label for="baseUrl">Base URL</label>
+          <input id="baseUrl" value="https://icq.cqust.edu.cn/icqust-admin">
+        </div>
+        <div>
+          <label for="classNum">class_num</label>
+          <input id="classNum" placeholder="例如 3GS1290A.13">
+        </div>
+        <div>
+          <label for="teacherId">class_teacherid</label>
+          <input id="teacherId" placeholder="例如 2019056">
+        </div>
+        <div>
+          <label for="lat">纬度</label>
+          <input id="lat" inputmode="decimal" placeholder="例如 29.539">
+        </div>
+        <div>
+          <label for="lng">经度</label>
+          <input id="lng" inputmode="decimal" placeholder="例如 106.605">
+        </div>
+      </div>
+      <div id="map">
+        <div class="map-tools">
+          <button class="secondary" id="zoomInBtn" title="地图放大">+</button>
+          <button class="secondary" id="zoomOutBtn" title="地图缩小">-</button>
+          <button class="secondary" id="centerSchoolBtn" title="回到默认位置">◎</button>
+        </div>
+        <div id="mapMarker"></div>
+      </div>
+
+      <div class="action-row">
+        <div>
+          <label for="signCode">6 位签到码</label>
+          <input id="signCode" inputmode="numeric" maxlength="6" placeholder="例如 123456">
+        </div>
+        <button id="sendBtn">发送签到请求</button>
+        <button class="secondary" id="coursesBtn">获取课程列表</button>
+        <button class="secondary" id="geoBtn">读取当前位置</button>
+        <button class="secondary" id="copyJsonBtn">复制 JSON</button>
+        <button class="secondary" id="copyCurlBtn">复制 curl</button>
+      </div>
+      <p class="hint">请求体格式：{"cnum":"class_num-teacherId-签到码","location":"纬度:lat经度:lng"}。地图使用高德 GCJ-02 坐标。</p>
+    </section>
+
+    <section>
+      <label for="preview">请求预览</label>
+      <textarea id="preview" readonly></textarea>
+    </section>
+
+    <section>
+      <label>输出</label>
+      <div id="status" class="status">等待操作</div>
+    </section>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const ids = ["classNum", "teacherId", "signCode", "baseUrl", "lat", "lng"];
+    const maxTokenPanes = 4;
+    const storageKeys = {
+      token: "wx96_tool_token",
+      tokens: "wx96_tool_tokens",
+      tokenPaneCount: "wx96_tool_token_pane_count",
+      baseUrl: "wx96_tool_base_url",
+      lastCourse: "wx96_tool_last_course",
+      lat: "wx96_tool_lat",
+      lng: "wx96_tool_lng"
+    };
+    const defaultCenter = [29.590971, 106.322829];
+    const oldDefaultCenter = [29.5948, 106.3032];
+    let mapState = { lat: defaultCenter[0], lng: defaultCenter[1], zoom: 16 };
+    const tileSize = 256;
+    const minMapZoom = 3;
+    const maxMapZoom = 18;
+    let autoCourseTimer = null;
+    let lastAutoCourseToken = "";
+    let isDraggingMap = false;
+    let dragStart = null;
+    const activePointers = new Map();
+    let pinchStart = null;
+    let tokenPaneCount = 1;
+    const courseMap = new Map();
+
+    function tokenValue() {
+      return tokenAt(0);
+    }
+
+    function tokenAt(index) {
+      return $(`token${index}`).value.trim().replace(/^Bearer\s+/i, "");
+    }
+
+    function allTokens() {
+      const result = [];
+      for (let i = 0; i < tokenPaneCount; i++) {
+        const token = tokenAt(i);
+        if (token) result.push({ index: i, label: `账号 ${i + 1}`, token });
+      }
+      return result;
+    }
+
+    function endpoint(path) {
+      return $("baseUrl").value.trim().replace(/\/+$/, "") + path;
+    }
+
+    function bodyObject() {
+      const classNum = $("classNum").value.trim();
+      const teacherId = $("teacherId").value.trim();
+      const code = $("signCode").value.trim();
+      const lat = $("lat").value.trim();
+      const lng = $("lng").value.trim();
+      return {
+        cnum: `${classNum}-${teacherId}-${code}`,
+        location: `纬度:${lat}经度:${lng}`
+      };
+    }
+
+    function getJwtPayload(token) {
+      const parts = token.split(".");
+      if (parts.length < 2) return null;
+      let payload = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+      while (payload.length % 4) payload += "=";
+      try {
+        return JSON.parse(decodeURIComponent(Array.from(atob(payload), c =>
+          "%" + c.charCodeAt(0).toString(16).padStart(2, "0")
+        ).join("")));
+      } catch {
+        try { return JSON.parse(atob(payload)); } catch { return null; }
+      }
+    }
+
+    function formatRemaining(ms) {
+      if (ms <= 0) return "已过期";
+      const minutes = Math.floor(ms / 60000);
+      const hours = Math.floor(minutes / 60);
+      return `${hours}h ${minutes % 60}m`;
+    }
+
+    function updateTokenInfo() {
+      for (let i = 0; i < maxTokenPanes; i++) {
+        const info = $(`tokenInfo${i}`);
+        if (!info) continue;
+        const token = tokenAt(i);
+        if (!token) {
+          info.textContent = "Token 未填写";
+          continue;
+        }
+        const payload = getJwtPayload(token);
+        if (!payload || !payload.exp) {
+          info.textContent = "Token 已填写，无法解析过期时间";
+          continue;
+        }
+        const expiresAt = new Date(payload.exp * 1000);
+        info.textContent = `过期时间：${expiresAt.toLocaleString()}，剩余：${formatRemaining(expiresAt - new Date())}`;
+      }
+    }
+
+    function requestPreview() {
+      return {
+        url: endpoint("/wechat/checkIn/checkInWithLocation"),
+        method: "POST",
+        headers: {
+          Authorization: "Bearer <每个账号的 token>",
+          "Content-Type": "application/json"
+        },
+        accountCount: allTokens().length,
+        body: bodyObject()
+      };
+    }
+
+    function updatePreview() {
+      $("preview").value = JSON.stringify(requestPreview(), null, 2);
+      updateTokenInfo();
+      saveState();
+    }
+
+    function setStatus(text) {
+      $("status").textContent = text;
+    }
+
+    function geolocationErrorText(err) {
+      const tips = [
+        "可改用地图点击或拖动来选择经纬度。",
+        "手机浏览器通常要求 HTTPS 页面才会弹定位权限；file:// 或普通 http:// 局域网页面可能直接失败。",
+        "电脑端还需要系统定位服务可用，台式机或未开启系统定位时即使同意也可能失败。"
+      ];
+      const suffix = "\n\n" + tips.join("\n");
+
+      if (!window.isSecureContext) {
+        return "ERROR: 当前页面不是安全上下文，浏览器可能禁止网页定位。" + suffix;
+      }
+
+      if (!err) {
+        return "ERROR: 定位失败，原因未知。" + suffix;
+      }
+
+      if (err.code === 1) {
+        return "ERROR: 定位权限被拒绝，或浏览器没有弹出权限请求。" + suffix;
+      }
+
+      if (err.code === 2) {
+        return "ERROR: 当前位置不可用，系统或浏览器没有拿到有效定位。" + suffix;
+      }
+
+      if (err.code === 3) {
+        return "ERROR: 定位超时，没有在限定时间内拿到位置。" + suffix;
+      }
+
+      return "ERROR: 定位失败：" + (err.message || "未知错误") + suffix;
+    }
+
+    function validateSignInput() {
+      const tokens = allTokens();
+      const { cnum, location } = bodyObject();
+      const code = $("signCode").value.trim();
+      if (tokens.length === 0) throw new Error("至少需要填写一个 token");
+      if (!$("classNum").value.trim()) throw new Error("缺少 class_num");
+      if (!$("teacherId").value.trim()) throw new Error("缺少 class_teacherid");
+      if (!/^\d{6}$/.test(code)) throw new Error("签到码必须是 6 位数字");
+      if (!$("lat").value.trim() || !$("lng").value.trim()) throw new Error("缺少经纬度");
+      return { cnum, location };
+    }
+
+    async function postJson(url, body, token = tokenValue()) {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer " + token,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(body)
+      });
+      const text = await res.text();
+      let parsed = text;
+      try { parsed = JSON.parse(text); } catch {}
+      return { status: res.status, ok: res.ok, body: parsed };
+    }
+
+    async function getJson(url, token = tokenValue()) {
+      const res = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: "Bearer " + token,
+          "Content-Type": "application/json"
+        }
+      });
+      const text = await res.text();
+      let parsed = text;
+      try { parsed = JSON.parse(text); } catch {}
+      return { status: res.status, ok: res.ok, body: parsed };
+    }
+
+    async function loadCourses({ silent = false, auto = false } = {}) {
+      const tokens = allTokens();
+      if (tokens.length === 0) throw new Error("至少需要填写一个 token");
+      if (!silent) setStatus("正在获取课程列表...");
+      const results = [];
+      courseMap.clear();
+      for (const account of tokens) {
+        try {
+          const result = await getJson(endpoint("/wechat/checkIn/myCourses"), account.token);
+          results.push({ account: account.label, ok: true, result });
+          if (result.body && result.body.data) {
+            mergeCourses(result.body.data, account.label);
+          }
+        } catch (err) {
+          results.push({ account: account.label, ok: false, error: err.message });
+        }
+      }
+      renderCourses();
+      if (!silent) {
+        setStatus(JSON.stringify(results, null, 2));
+      } else if (auto) {
+        setStatus(`已自动获取课程列表：${courseMap.size} 门，账号数：${tokens.length}`);
+      }
+      return results;
+    }
+
+    async function copyText(text) {
+      await navigator.clipboard.writeText(text);
+      setStatus("已复制");
+    }
+
+    function curlCommand() {
+      const body = JSON.stringify(bodyObject()).replace(/'/g, "'\\''");
+      return allTokens().map(account => [
+          "# " + account.label,
+          "curl -X POST",
+          `'${endpoint("/wechat/checkIn/checkInWithLocation")}'`,
+          "-H 'Authorization: Bearer " + account.token.replace(/'/g, "'\\''") + "'",
+          "-H 'Content-Type: application/json'",
+          `--data '${body}'`
+        ].join(" ")
+      ).join("\n\n");
+    }
+
+    function applyTokenPaneCount() {
+      tokenPaneCount = tokenPaneCount >= 4 ? 4 : tokenPaneCount >= 2 ? 2 : 1;
+      $("tokenGrid").className = `token-grid count-${tokenPaneCount}${tokenPaneCount > 1 ? " multi" : ""}`;
+      for (let i = 0; i < maxTokenPanes; i++) {
+        const panel = document.querySelector(`[data-token-panel="${i}"]`);
+        if (panel) panel.hidden = i >= tokenPaneCount;
+      }
+      $("addTokenBtn").disabled = tokenPaneCount >= maxTokenPanes;
+      $("addTokenBtn").textContent = tokenPaneCount >= maxTokenPanes ? "最多 4 个 token" : "添加 token";
+      $("removeTokenBtn").disabled = tokenPaneCount <= 1;
+    }
+
+    function saveState() {
+      localStorage.setItem(storageKeys.token, tokenValue());
+      localStorage.setItem(storageKeys.tokens, JSON.stringify(Array.from({ length: maxTokenPanes }, (_, i) => tokenAt(i))));
+      localStorage.setItem(storageKeys.tokenPaneCount, String(tokenPaneCount));
+      localStorage.setItem(storageKeys.baseUrl, $("baseUrl").value.trim());
+      localStorage.setItem(storageKeys.lat, $("lat").value.trim());
+      localStorage.setItem(storageKeys.lng, $("lng").value.trim());
+      localStorage.setItem(storageKeys.lastCourse, $("courseSelect").value);
+    }
+
+    function restoreState() {
+      let savedTokens = [];
+      try {
+        savedTokens = JSON.parse(localStorage.getItem(storageKeys.tokens) || "[]");
+      } catch {
+        savedTokens = [];
+      }
+      if (!savedTokens.length) {
+        savedTokens = [localStorage.getItem(storageKeys.token) || ""];
+      }
+      for (let i = 0; i < maxTokenPanes; i++) {
+        $(`token${i}`).value = savedTokens[i] || "";
+      }
+      const savedCount = parseInt(localStorage.getItem(storageKeys.tokenPaneCount) || "1", 10);
+      tokenPaneCount = savedCount >= 4 ? 4 : savedCount >= 2 ? 2 : 1;
+      if (savedTokens.slice(2, 4).some(Boolean)) tokenPaneCount = 4;
+      else if (savedTokens[1]) tokenPaneCount = Math.max(tokenPaneCount, 2);
+      applyTokenPaneCount();
+      $("baseUrl").value = localStorage.getItem(storageKeys.baseUrl) || $("baseUrl").value;
+      const savedLat = localStorage.getItem(storageKeys.lat) || "";
+      const savedLng = localStorage.getItem(storageKeys.lng) || "";
+      const isOldDefault = Math.abs(parseFloat(savedLat) - oldDefaultCenter[0]) < 0.000001
+        && Math.abs(parseFloat(savedLng) - oldDefaultCenter[1]) < 0.000001;
+      $("lat").value = isOldDefault ? "" : savedLat;
+      $("lng").value = isOldDefault ? "" : savedLng;
+    }
+
+    function fillCourseFromValue(value) {
+      if (!value) return;
+      const [classNum, teacherId] = value.split(",");
+      if (classNum) $("classNum").value = classNum;
+      if (teacherId) $("teacherId").value = teacherId;
+      updatePreview();
+    }
+
+    function mergeCourses(data, accountLabel) {
+      const rows = Array.isArray(data) ? data : [];
+      for (const course of rows) {
+        const classNum = course.class_num || course.classNum || course.code || "";
+        const teacherId = course.class_teacherid || course.teacherId || course.classTeacherid || "";
+        if (!classNum || !teacherId) continue;
+        const key = `${classNum},${teacherId}`;
+        const name = course.class_name || course.name || "";
+        const teacher = course.teacher_name || course.teacher || "";
+        const old = courseMap.get(key);
+        if (old) {
+          old.accounts.add(accountLabel);
+        } else {
+          courseMap.set(key, { classNum, teacherId, name, teacher, accounts: new Set([accountLabel]) });
+        }
+      }
+    }
+
+    function renderCourses() {
+      const select = $("courseSelect");
+      const current = select.value || localStorage.getItem(storageKeys.lastCourse) || "";
+      select.innerHTML = '<option value="">手动填写</option>';
+      for (const [key, course] of Array.from(courseMap.entries()).sort((a, b) => a[0].localeCompare(b[0]))) {
+        const opt = document.createElement("option");
+        opt.value = key;
+        opt.textContent = [
+          course.classNum,
+          course.teacherId,
+          course.name,
+          course.teacher,
+          Array.from(course.accounts).join("/")
+        ].filter(Boolean).join(" | ");
+        select.appendChild(opt);
+      }
+      if (current && Array.from(select.options).some(opt => opt.value === current)) {
+        select.value = current;
+        fillCourseFromValue(current);
+      }
+    }
+
+    function setLatLng(lat, lng, zoom = mapState.zoom) {
+      $("lat").value = Number(lat).toFixed(6);
+      $("lng").value = Number(lng).toFixed(6);
+      mapState = { lat: Number(lat), lng: Number(lng), zoom };
+      renderMap();
+      updatePreview();
+    }
+
+    function clampZoom(zoom) {
+      return Math.max(minMapZoom, Math.min(maxMapZoom, zoom));
+    }
+
+    function lonLatToWorld(lat, lng, zoom) {
+      const scale = tileSize * Math.pow(2, zoom);
+      const sin = Math.sin(lat * Math.PI / 180);
+      return {
+        x: (lng + 180) / 360 * scale,
+        y: (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * scale
+      };
+    }
+
+    function worldToLonLat(x, y, zoom) {
+      const scale = tileSize * Math.pow(2, zoom);
+      const lng = x / scale * 360 - 180;
+      const n = Math.PI - 2 * Math.PI * y / scale;
+      const lat = Math.atan(Math.sinh(n)) * 180 / Math.PI;
+      return { lat, lng };
+    }
+
+    function mapRect() {
+      return $("map").getBoundingClientRect();
+    }
+
+    function screenPointToWorld(clientX, clientY, state = mapState) {
+      const rect = mapRect();
+      const centerWorld = lonLatToWorld(state.lat, state.lng, state.zoom);
+      return {
+        x: centerWorld.x - rect.width / 2 + clientX - rect.left,
+        y: centerWorld.y - rect.height / 2 + clientY - rect.top
+      };
+    }
+
+    function setMapCenterKeepingScreenPoint(anchorClientX, anchorClientY, anchorWorldBefore, newZoom, sourceZoom = mapState.zoom) {
+      const rect = mapRect();
+      const anchorLatLng = worldToLonLat(anchorWorldBefore.x, anchorWorldBefore.y, sourceZoom);
+      const anchorWorldAfter = lonLatToWorld(anchorLatLng.lat, anchorLatLng.lng, newZoom);
+      const centerWorldAfter = {
+        x: anchorWorldAfter.x - (anchorClientX - rect.left) + rect.width / 2,
+        y: anchorWorldAfter.y - (anchorClientY - rect.top) + rect.height / 2
+      };
+      const center = worldToLonLat(centerWorldAfter.x, centerWorldAfter.y, newZoom);
+      mapState = { lat: center.lat, lng: center.lng, zoom: newZoom };
+      $("lat").value = Number(center.lat).toFixed(6);
+      $("lng").value = Number(center.lng).toFixed(6);
+      renderMap();
+      updatePreview();
+    }
+
+    function zoomAt(clientX, clientY, delta) {
+      const nextZoom = clampZoom(mapState.zoom + delta);
+      if (nextZoom === mapState.zoom) return;
+      const worldBefore = screenPointToWorld(clientX, clientY);
+      setMapCenterKeepingScreenPoint(clientX, clientY, worldBefore, nextZoom);
+    }
+
+    function pointerDistance(a, b) {
+      return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+    }
+
+    function pointerMidpoint(a, b) {
+      return {
+        clientX: (a.clientX + b.clientX) / 2,
+        clientY: (a.clientY + b.clientY) / 2
+      };
+    }
+
+    function tileUrl(x, y, zoom) {
+      const max = Math.pow(2, zoom);
+      const wrappedX = ((x % max) + max) % max;
+      return `https://webrd01.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x=${wrappedX}&y=${y}&z=${zoom}`;
+    }
+
+    function renderMap() {
+      const el = $("map");
+      if (!el) return;
+      const width = el.clientWidth || 600;
+      const height = el.clientHeight || 320;
+      const tileZoom = Math.floor(clampZoom(mapState.zoom));
+      const visualScale = Math.pow(2, mapState.zoom - tileZoom);
+      const center = lonLatToWorld(mapState.lat, mapState.lng, mapState.zoom);
+      const topLeft = { x: center.x - width / 2, y: center.y - height / 2 };
+      const startX = Math.floor((topLeft.x / visualScale) / tileSize);
+      const endX = Math.floor(((topLeft.x + width) / visualScale) / tileSize);
+      const startY = Math.floor((topLeft.y / visualScale) / tileSize);
+      const endY = Math.floor(((topLeft.y + height) / visualScale) / tileSize);
+      const maxY = Math.pow(2, tileZoom) - 1;
+
+      el.querySelectorAll(".tile").forEach(node => node.remove());
+      for (let x = startX; x <= endX; x++) {
+        for (let y = startY; y <= endY; y++) {
+          if (y < 0 || y > maxY) continue;
+          const img = document.createElement("img");
+          img.className = "tile";
+          img.draggable = false;
+          img.src = tileUrl(x, y, tileZoom);
+          img.style.width = `${tileSize * visualScale}px`;
+          img.style.height = `${tileSize * visualScale}px`;
+          img.style.left = `${x * tileSize * visualScale - topLeft.x}px`;
+          img.style.top = `${y * tileSize * visualScale - topLeft.y}px`;
+          el.insertBefore(img, $("mapMarker"));
+        }
+      }
+    }
+
+    function setLatLngFromMapPoint(clientX, clientY, shouldRender = true) {
+      const world = screenPointToWorld(clientX, clientY);
+      const point = worldToLonLat(world.x, world.y, mapState.zoom);
+      $("lat").value = Number(point.lat).toFixed(6);
+      $("lng").value = Number(point.lng).toFixed(6);
+      mapState.lat = point.lat;
+      mapState.lng = point.lng;
+      if (shouldRender) renderMap();
+      updatePreview();
+    }
+
+    function initMap() {
+      const savedLat = parseFloat($("lat").value);
+      const savedLng = parseFloat($("lng").value);
+      const center = Number.isFinite(savedLat) && Number.isFinite(savedLng) ? [savedLat, savedLng] : defaultCenter;
+      mapState = { lat: center[0], lng: center[1], zoom: 16 };
+      renderMap();
+      $("map").addEventListener("click", (event) => {
+        if (event.target.closest(".map-tools")) return;
+        if (dragStart && dragStart.moved) return;
+        setLatLngFromMapPoint(event.clientX, event.clientY);
+      });
+      $("map").addEventListener("pointerdown", (event) => {
+        if (event.target.closest(".map-tools")) return;
+        event.preventDefault();
+        activePointers.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
+        $("map").setPointerCapture(event.pointerId);
+
+        if (activePointers.size === 2) {
+          const points = Array.from(activePointers.values());
+          const mid = pointerMidpoint(points[0], points[1]);
+          pinchStart = {
+            distance: pointerDistance(points[0], points[1]),
+            zoom: mapState.zoom,
+            anchorClientX: mid.clientX,
+            anchorClientY: mid.clientY,
+            anchorWorld: screenPointToWorld(mid.clientX, mid.clientY)
+          };
+          isDraggingMap = false;
+          dragStart = null;
+          $("map").classList.add("dragging");
+          return;
+        }
+
+        isDraggingMap = true;
+        dragStart = {
+          x: event.clientX,
+          y: event.clientY,
+          lat: mapState.lat,
+          lng: mapState.lng,
+          moved: false
+        };
+        $("map").classList.add("dragging");
+      });
+      $("map").addEventListener("pointermove", (event) => {
+        if (activePointers.has(event.pointerId)) {
+          activePointers.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
+        }
+
+        if (activePointers.size >= 2 && pinchStart) {
+          event.preventDefault();
+          const points = Array.from(activePointers.values()).slice(0, 2);
+          const currentDistance = pointerDistance(points[0], points[1]);
+          if (pinchStart.distance > 0 && currentDistance > 0) {
+            const zoomDelta = Math.log2(currentDistance / pinchStart.distance);
+            const nextZoom = clampZoom(pinchStart.zoom + zoomDelta);
+            setMapCenterKeepingScreenPoint(
+              pinchStart.anchorClientX,
+              pinchStart.anchorClientY,
+              pinchStart.anchorWorld,
+              nextZoom,
+              pinchStart.zoom
+            );
+          }
+          return;
+        }
+
+        if (!isDraggingMap || !dragStart) return;
+        event.preventDefault();
+        const dx = event.clientX - dragStart.x;
+        const dy = event.clientY - dragStart.y;
+        if (Math.abs(dx) + Math.abs(dy) < 3) return;
+        dragStart.moved = true;
+        const startWorld = lonLatToWorld(dragStart.lat, dragStart.lng, mapState.zoom);
+        const next = worldToLonLat(startWorld.x - dx, startWorld.y - dy, mapState.zoom);
+        $("lat").value = Number(next.lat).toFixed(6);
+        $("lng").value = Number(next.lng).toFixed(6);
+        mapState.lat = next.lat;
+        mapState.lng = next.lng;
+        renderMap();
+        updatePreview();
+      });
+      $("map").addEventListener("pointerup", (event) => {
+        if (isDraggingMap) {
+          event.preventDefault();
+        }
+        activePointers.delete(event.pointerId);
+        try { $("map").releasePointerCapture(event.pointerId); } catch {}
+        isDraggingMap = false;
+        pinchStart = null;
+        if (activePointers.size === 1) {
+          const only = Array.from(activePointers.values())[0];
+          isDraggingMap = true;
+          dragStart = {
+            x: only.clientX,
+            y: only.clientY,
+            lat: mapState.lat,
+            lng: mapState.lng,
+            moved: true
+          };
+        } else {
+          $("map").classList.remove("dragging");
+        }
+      });
+      $("map").addEventListener("pointercancel", (event) => {
+        activePointers.delete(event.pointerId);
+        try { $("map").releasePointerCapture(event.pointerId); } catch {}
+        isDraggingMap = false;
+        pinchStart = null;
+        $("map").classList.remove("dragging");
+      });
+      $("map").addEventListener("wheel", (event) => {
+        event.preventDefault();
+        zoomAt(event.clientX, event.clientY, -event.deltaY / 350);
+      }, { passive: false });
+      $("map").addEventListener("dblclick", (event) => {
+        event.preventDefault();
+        zoomAt(event.clientX, event.clientY, 1);
+      });
+      if (!Number.isFinite(savedLat) || !Number.isFinite(savedLng)) {
+        setLatLng(center[0], center[1], 16);
+      }
+      window.addEventListener("resize", renderMap);
+    }
+
+    $("sendBtn").addEventListener("click", async () => {
+      try {
+        updatePreview();
+        const body = validateSignInput();
+        const tokens = allTokens();
+        setStatus(`正在为 ${tokens.length} 个账号发送签到请求...`);
+        const results = await Promise.all(tokens.map(async (account) => {
+          try {
+            const result = await postJson(endpoint("/wechat/checkIn/checkInWithLocation"), body, account.token);
+            return { account: account.label, ok: true, result };
+          } catch (err) {
+            return { account: account.label, ok: false, error: err.message };
+          }
+        }));
+        setStatus(JSON.stringify(results, null, 2));
+      } catch (err) {
+        setStatus("ERROR: " + err.message);
+      }
+    });
+
+    $("coursesBtn").addEventListener("click", async () => {
+      try {
+        await loadCourses();
+      } catch (err) {
+        setStatus("ERROR: " + err.message);
+      }
+    });
+
+    $("geoBtn").addEventListener("click", () => {
+      if (!navigator.geolocation) {
+        setStatus("ERROR: 当前浏览器不支持定位。\n\n可改用地图点击或拖动来选择经纬度。");
+        return;
+      }
+      setStatus("正在读取定位...");
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setLatLng(pos.coords.latitude, pos.coords.longitude, mapState.zoom);
+          setStatus("定位已填入");
+        },
+        (err) => setStatus(geolocationErrorText(err)),
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    });
+
+    $("copyJsonBtn").addEventListener("click", async () => {
+      updatePreview();
+      await copyText(JSON.stringify(bodyObject(), null, 2));
+    });
+
+    $("copyCurlBtn").addEventListener("click", async () => {
+      updatePreview();
+      await copyText(curlCommand());
+    });
+    $("zoomInBtn").addEventListener("click", () => {
+      mapState.zoom = clampZoom(mapState.zoom + 1);
+      renderMap();
+    });
+    $("zoomOutBtn").addEventListener("click", () => {
+      mapState.zoom = clampZoom(mapState.zoom - 1);
+      renderMap();
+    });
+    $("centerSchoolBtn").addEventListener("click", () => setLatLng(defaultCenter[0], defaultCenter[1], 16));
+
+    function scheduleAutoCourses() {
+      clearTimeout(autoCourseTimer);
+      autoCourseTimer = setTimeout(async () => {
+        const tokenSignature = allTokens().map(item => item.token).join("|");
+        if (!tokenSignature || tokenSignature === lastAutoCourseToken) return;
+        lastAutoCourseToken = tokenSignature;
+        try {
+          await loadCourses({ silent: true, auto: true });
+        } catch (err) {
+          setStatus("自动获取课程列表失败: " + err.message);
+        }
+      }, 900);
+    }
+
+    $("addTokenBtn").addEventListener("click", () => {
+      tokenPaneCount = tokenPaneCount === 1 ? 2 : 4;
+      applyTokenPaneCount();
+      updatePreview();
+    });
+    $("removeTokenBtn").addEventListener("click", () => {
+      tokenPaneCount = tokenPaneCount === 4 ? 2 : 1;
+      applyTokenPaneCount();
+      updatePreview();
+    });
+
+    for (let i = 0; i < maxTokenPanes; i++) {
+      $(`token${i}`).addEventListener("input", () => {
+        updatePreview();
+        scheduleAutoCourses();
+      });
+    }
+
+    ids.forEach((id) => {
+      $(id).addEventListener("input", () => {
+        updatePreview();
+        if (id === "baseUrl") scheduleAutoCourses();
+      });
+    });
+    $("courseSelect").addEventListener("change", () => fillCourseFromValue($("courseSelect").value));
+    restoreState();
+    updatePreview();
+    initMap();
+    if (allTokens().length) scheduleAutoCourses();
+  </script>
+</body>
+</html>
