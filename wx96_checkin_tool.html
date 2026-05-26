@@ -53,6 +53,12 @@
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 10px 14px;
     }
+    .compact-fields {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px 14px;
+    }
     .row {
       display: flex;
       gap: 8px;
@@ -61,7 +67,7 @@
     }
     .action-row {
       display: grid;
-      grid-template-columns: minmax(130px, 180px) repeat(5, auto);
+      grid-template-columns: minmax(130px, 180px) repeat(4, auto);
       gap: 8px;
       align-items: end;
       margin-top: 12px;
@@ -225,6 +231,52 @@
       box-shadow: 0 1px 4px rgba(27,31,36,.2);
       touch-action: manipulation;
     }
+    .location-panel {
+      margin-top: 10px;
+      border: 1px solid #d0d7de;
+      border-radius: 6px;
+      background: #f6f8fa;
+      overflow: hidden;
+    }
+    .location-panel summary {
+      box-sizing: border-box;
+      min-height: 42px;
+      cursor: pointer;
+      padding: 10px 12px;
+      font: inherit;
+      user-select: none;
+    }
+    .location-panel summary::marker {
+      font-size: .8em;
+    }
+    .location-body {
+      display: grid;
+      gap: 10px;
+      padding: 0 12px 12px;
+    }
+    .location-box {
+      border: 1px solid #c9d1d9;
+      border-radius: 6px;
+      padding: 10px;
+      background: #fff;
+    }
+    .quick-location-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .quick-location-bar button {
+      width: auto;
+      min-width: 0;
+      padding: 7px 10px;
+      font-size: 13px;
+    }
+    .quick-location-bar button.selected {
+      background: #0969da;
+      border-color: #0969da;
+      color: #fff;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.28);
+    }
     .status {
       white-space: pre-wrap;
       background: #0d1117;
@@ -242,6 +294,11 @@
       .token-grid.count-4 { grid-template-columns: 1fr; }
       .action-row { grid-template-columns: 1fr; }
       button { width: 100%; }
+      .map-tools button { width: 38px; }
+      .quick-location-bar button {
+        width: auto;
+        flex: 1 1 calc(50% - 8px);
+      }
     }
   </style>
 </head>
@@ -287,34 +344,50 @@
             <option value="">先获取课程列表，或手动填写</option>
           </select>
         </div>
-        <div>
-          <label for="baseUrl">Base URL</label>
-          <input id="baseUrl" value="https://icq.cqust.edu.cn/icqust-admin">
-        </div>
-        <div>
-          <label for="classNum">class_num</label>
-          <input id="classNum" placeholder="例如 3GS1290A.13">
-        </div>
-        <div>
-          <label for="teacherId">class_teacherid</label>
-          <input id="teacherId" placeholder="例如 2019056">
-        </div>
-        <div>
-          <label for="lat">纬度</label>
-          <input id="lat" inputmode="decimal" placeholder="例如 29.539">
-        </div>
-        <div>
-          <label for="lng">经度</label>
-          <input id="lng" inputmode="decimal" placeholder="例如 106.605">
+        <div class="compact-fields">
+          <div>
+            <label for="baseUrl">Base URL</label>
+            <input id="baseUrl" value="https://icq.cqust.edu.cn/icqust-admin">
+          </div>
+          <div>
+            <label for="classNum">class_num</label>
+            <input id="classNum" placeholder="例如 3GS1290A.13">
+          </div>
+          <div>
+            <label for="teacherId">class_teacherid</label>
+            <input id="teacherId" placeholder="例如 2019056">
+          </div>
         </div>
       </div>
-      <div id="map">
-        <div class="map-tools">
-          <button class="secondary" id="zoomInBtn" title="地图放大">+</button>
-          <button class="secondary" id="zoomOutBtn" title="地图缩小">-</button>
-          <button class="secondary" id="centerSchoolBtn" title="回到默认位置">◎</button>
+
+      <div class="location-field">
+        <label>位置（多个楼时自动匹配可能异常）</label>
+        <div class="location-box">
+          <div class="quick-location-bar" id="quickLocationBar" aria-label="快捷位置">
+            <button class="secondary" id="geoBtn">读取当前位置</button>
+          </div>
+          <details class="location-panel" id="locationPanel">
+            <summary id="locationPanelSummary">其他位置</summary>
+            <div class="location-body">
+              <div>
+                <label for="lng">经度</label>
+                <input id="lng" inputmode="decimal" placeholder="例如 106.605">
+              </div>
+              <div>
+                <label for="lat">纬度</label>
+                <input id="lat" inputmode="decimal" placeholder="例如 29.539">
+              </div>
+              <div id="map">
+                <div class="map-tools">
+                  <button class="secondary" id="zoomInBtn" title="地图放大">+</button>
+                  <button class="secondary" id="zoomOutBtn" title="地图缩小">-</button>
+                  <button class="secondary" id="centerSchoolBtn" title="回到默认位置">◎</button>
+                </div>
+                <div id="mapMarker"></div>
+              </div>
+            </div>
+          </details>
         </div>
-        <div id="mapMarker"></div>
       </div>
 
       <div class="action-row">
@@ -324,7 +397,6 @@
         </div>
         <button id="sendBtn">发送签到请求</button>
         <button class="secondary" id="coursesBtn">获取课程列表</button>
-        <button class="secondary" id="geoBtn">读取当前位置</button>
         <button class="secondary" id="copyJsonBtn">复制 JSON</button>
         <button class="secondary" id="copyCurlBtn">复制 curl</button>
       </div>
@@ -353,10 +425,18 @@
       baseUrl: "wx96_tool_base_url",
       lastCourse: "wx96_tool_last_course",
       lat: "wx96_tool_lat",
-      lng: "wx96_tool_lng"
+      lng: "wx96_tool_lng",
+      geoLat: "wx96_tool_geo_lat",
+      geoLng: "wx96_tool_geo_lng"
     };
     const defaultCenter = [29.590971, 106.322829];
     const oldDefaultCenter = [29.5948, 106.3032];
+    const quickLocations = [
+      { name: "教学主楼（ABCD）", aliases: ["教学主楼", "教学楼A", "教学楼B", "教学楼C", "教学楼D", "主楼A", "主楼B", "主楼C", "主楼D"], lat: defaultCenter[0], lng: defaultCenter[1], zoom: 16 },
+      { name: "博学楼（EF）", aliases: ["博学楼"], lat: 29.588486, lng: 106.324481, zoom: 16 },
+      { name: "厚德楼（G）", aliases: ["厚德楼"], lat: 29.588418, lng: 106.322018, zoom: 16 },
+      { name: "逸夫楼（I）", aliases: ["逸夫楼"], lat: 29.588332, lng: 106.320575, zoom: 16 }
+    ];
     let mapState = { lat: defaultCenter[0], lng: defaultCenter[1], zoom: 16 };
     const tileSize = 256;
     const minMapZoom = 3;
@@ -443,13 +523,121 @@
       }
     }
 
+    function md5(input) {
+      function add32(a, b) { return (a + b) & 0xffffffff; }
+      function cmn(q, a, b, x, s, t) {
+        a = add32(add32(a, q), add32(x, t));
+        return add32((a << s) | (a >>> (32 - s)), b);
+      }
+      function ff(a, b, c, d, x, s, t) { return cmn((b & c) | (~b & d), a, b, x, s, t); }
+      function gg(a, b, c, d, x, s, t) { return cmn((b & d) | (c & ~d), a, b, x, s, t); }
+      function hh(a, b, c, d, x, s, t) { return cmn(b ^ c ^ d, a, b, x, s, t); }
+      function ii(a, b, c, d, x, s, t) { return cmn(c ^ (b | ~d), a, b, x, s, t); }
+      function block(words, state) {
+        let [a, b, c, d] = state;
+        const olda = a, oldb = b, oldc = c, oldd = d;
+        a = ff(a, b, c, d, words[0], 7, -680876936); d = ff(d, a, b, c, words[1], 12, -389564586);
+        c = ff(c, d, a, b, words[2], 17, 606105819); b = ff(b, c, d, a, words[3], 22, -1044525330);
+        a = ff(a, b, c, d, words[4], 7, -176418897); d = ff(d, a, b, c, words[5], 12, 1200080426);
+        c = ff(c, d, a, b, words[6], 17, -1473231341); b = ff(b, c, d, a, words[7], 22, -45705983);
+        a = ff(a, b, c, d, words[8], 7, 1770035416); d = ff(d, a, b, c, words[9], 12, -1958414417);
+        c = ff(c, d, a, b, words[10], 17, -42063); b = ff(b, c, d, a, words[11], 22, -1990404162);
+        a = ff(a, b, c, d, words[12], 7, 1804603682); d = ff(d, a, b, c, words[13], 12, -40341101);
+        c = ff(c, d, a, b, words[14], 17, -1502002290); b = ff(b, c, d, a, words[15], 22, 1236535329);
+        a = gg(a, b, c, d, words[1], 5, -165796510); d = gg(d, a, b, c, words[6], 9, -1069501632);
+        c = gg(c, d, a, b, words[11], 14, 643717713); b = gg(b, c, d, a, words[0], 20, -373897302);
+        a = gg(a, b, c, d, words[5], 5, -701558691); d = gg(d, a, b, c, words[10], 9, 38016083);
+        c = gg(c, d, a, b, words[15], 14, -660478335); b = gg(b, c, d, a, words[4], 20, -405537848);
+        a = gg(a, b, c, d, words[9], 5, 568446438); d = gg(d, a, b, c, words[14], 9, -1019803690);
+        c = gg(c, d, a, b, words[3], 14, -187363961); b = gg(b, c, d, a, words[8], 20, 1163531501);
+        a = gg(a, b, c, d, words[13], 5, -1444681467); d = gg(d, a, b, c, words[2], 9, -51403784);
+        c = gg(c, d, a, b, words[7], 14, 1735328473); b = gg(b, c, d, a, words[12], 20, -1926607734);
+        a = hh(a, b, c, d, words[5], 4, -378558); d = hh(d, a, b, c, words[8], 11, -2022574463);
+        c = hh(c, d, a, b, words[11], 16, 1839030562); b = hh(b, c, d, a, words[14], 23, -35309556);
+        a = hh(a, b, c, d, words[1], 4, -1530992060); d = hh(d, a, b, c, words[4], 11, 1272893353);
+        c = hh(c, d, a, b, words[7], 16, -155497632); b = hh(b, c, d, a, words[10], 23, -1094730640);
+        a = hh(a, b, c, d, words[13], 4, 681279174); d = hh(d, a, b, c, words[0], 11, -358537222);
+        c = hh(c, d, a, b, words[3], 16, -722521979); b = hh(b, c, d, a, words[6], 23, 76029189);
+        a = hh(a, b, c, d, words[9], 4, -640364487); d = hh(d, a, b, c, words[12], 11, -421815835);
+        c = hh(c, d, a, b, words[15], 16, 530742520); b = hh(b, c, d, a, words[2], 23, -995338651);
+        a = ii(a, b, c, d, words[0], 6, -198630844); d = ii(d, a, b, c, words[7], 10, 1126891415);
+        c = ii(c, d, a, b, words[14], 15, -1416354905); b = ii(b, c, d, a, words[5], 21, -57434055);
+        a = ii(a, b, c, d, words[12], 6, 1700485571); d = ii(d, a, b, c, words[3], 10, -1894986606);
+        c = ii(c, d, a, b, words[10], 15, -1051523); b = ii(b, c, d, a, words[1], 21, -2054922799);
+        a = ii(a, b, c, d, words[8], 6, 1873313359); d = ii(d, a, b, c, words[15], 10, -30611744);
+        c = ii(c, d, a, b, words[6], 15, -1560198380); b = ii(b, c, d, a, words[13], 21, 1309151649);
+        a = ii(a, b, c, d, words[4], 6, -145523070); d = ii(d, a, b, c, words[11], 10, -1120210379);
+        c = ii(c, d, a, b, words[2], 15, 718787259); b = ii(b, c, d, a, words[9], 21, -343485551);
+        return [add32(a, olda), add32(b, oldb), add32(c, oldc), add32(d, oldd)];
+      }
+      const bytes = Array.from(new TextEncoder().encode(input));
+      const bitLen = bytes.length * 8;
+      bytes.push(0x80);
+      while (bytes.length % 64 !== 56) bytes.push(0);
+      for (let i = 0; i < 8; i++) bytes.push(Math.floor(bitLen / Math.pow(2, 8 * i)) & 255);
+      let state = [1732584193, -271733879, -1732584194, 271733878];
+      for (let i = 0; i < bytes.length; i += 64) {
+        const words = [];
+        for (let j = 0; j < 64; j += 4) {
+          words.push(bytes[i + j] | (bytes[i + j + 1] << 8) | (bytes[i + j + 2] << 16) | (bytes[i + j + 3] << 24));
+        }
+        state = block(words, state);
+      }
+      return state.map(n => {
+        let out = "";
+        for (let i = 0; i < 4; i++) out += ((n >>> (8 * i)) & 255).toString(16).padStart(2, "0");
+        return out;
+      }).join("");
+    }
+
+    const signSecretCache = new Map();
+
+    async function parseResponse(res) {
+      const text = await res.text();
+      let parsed = text;
+      try { parsed = JSON.parse(text); } catch {}
+      return { status: res.status, ok: res.ok, body: parsed };
+    }
+
+    async function getSignSecret(token) {
+      if (signSecretCache.has(token)) return signSecretCache.get(token);
+      const res = await fetch(endpoint("/wechat/checkToken"), {
+        method: "GET",
+        headers: {
+          Authorization: "Bearer " + token,
+          "Content-Type": "application/json"
+        }
+      });
+      const result = await parseResponse(res);
+      const body = result.body || {};
+      const secret = body.data && body.data.signSecret;
+      if (!result.ok || !(body.code === 200 || body.code === 0) || !secret) {
+        throw new Error((body.msg || body.message || "checkToken 未返回 signSecret") + ` (HTTP ${result.status})`);
+      }
+      signSecretCache.set(token, secret);
+      return secret;
+    }
+
+    async function signedHeaders(method, path, token) {
+      const signSecret = await getSignSecret(token);
+      const timestamp = Date.now().toString();
+      return {
+        Authorization: "Bearer " + token,
+        "Content-Type": "application/json",
+        "X-Timestamp": timestamp,
+        "X-Sign": md5(`${method.toUpperCase()}|${path}|${timestamp}|${signSecret}`)
+      };
+    }
+
     function requestPreview() {
       return {
         url: endpoint("/wechat/checkIn/checkInWithLocation"),
         method: "POST",
         headers: {
           Authorization: "Bearer <每个账号的 token>",
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          "X-Timestamp": "<当前毫秒时间戳>",
+          "X-Sign": "MD5(POST|/wechat/checkIn/checkInWithLocation|X-Timestamp|signSecret)"
         },
         accountCount: allTokens().length,
         body: bodyObject()
@@ -509,33 +697,21 @@
       return { cnum, location };
     }
 
-    async function postJson(url, body, token = tokenValue()) {
-      const res = await fetch(url, {
+    async function postJson(path, body, token = tokenValue()) {
+      const res = await fetch(endpoint(path), {
         method: "POST",
-        headers: {
-          Authorization: "Bearer " + token,
-          "Content-Type": "application/json"
-        },
+        headers: await signedHeaders("POST", path, token),
         body: JSON.stringify(body)
       });
-      const text = await res.text();
-      let parsed = text;
-      try { parsed = JSON.parse(text); } catch {}
-      return { status: res.status, ok: res.ok, body: parsed };
+      return parseResponse(res);
     }
 
-    async function getJson(url, token = tokenValue()) {
-      const res = await fetch(url, {
+    async function getJson(path, token = tokenValue()) {
+      const res = await fetch(endpoint(path), {
         method: "GET",
-        headers: {
-          Authorization: "Bearer " + token,
-          "Content-Type": "application/json"
-        }
+        headers: await signedHeaders("GET", path, token)
       });
-      const text = await res.text();
-      let parsed = text;
-      try { parsed = JSON.parse(text); } catch {}
-      return { status: res.status, ok: res.ok, body: parsed };
+      return parseResponse(res);
     }
 
     async function loadCourses({ silent = false, auto = false } = {}) {
@@ -546,7 +722,7 @@
       courseMap.clear();
       for (const account of tokens) {
         try {
-          const result = await getJson(endpoint("/wechat/checkIn/myCourses"), account.token);
+          const result = await getJson("/wechat/checkIn/myCourses", account.token);
           results.push({ account: account.label, ok: true, result });
           if (result.body && result.body.data) {
             mergeCourses(result.body.data, account.label);
@@ -569,17 +745,24 @@
       setStatus("已复制");
     }
 
-    function curlCommand() {
+    async function curlCommand() {
       const body = JSON.stringify(bodyObject()).replace(/'/g, "'\\''");
-      return allTokens().map(account => [
+      const path = "/wechat/checkIn/checkInWithLocation";
+      const commands = [];
+      for (const account of allTokens()) {
+        const headers = await signedHeaders("POST", path, account.token);
+        commands.push([
           "# " + account.label,
           "curl -X POST",
-          `'${endpoint("/wechat/checkIn/checkInWithLocation")}'`,
+          `'${endpoint(path)}'`,
           "-H 'Authorization: Bearer " + account.token.replace(/'/g, "'\\''") + "'",
           "-H 'Content-Type: application/json'",
+          "-H 'X-Timestamp: " + headers["X-Timestamp"] + "'",
+          "-H 'X-Sign: " + headers["X-Sign"] + "'",
           `--data '${body}'`
-        ].join(" ")
-      ).join("\n\n");
+        ].join(" "));
+      }
+      return commands.join("\n\n");
     }
 
     function applyTokenPaneCount() {
@@ -636,7 +819,19 @@
       const [classNum, teacherId] = value.split(",");
       if (classNum) $("classNum").value = classNum;
       if (teacherId) $("teacherId").value = teacherId;
+      const course = courseMap.get(value);
+      const location = findQuickLocationForCourse(course);
+      if (location) setLatLng(location.lat, location.lng, location.zoom || 16);
       updatePreview();
+    }
+
+    function findQuickLocationForCourse(course) {
+      if (!course) return null;
+      const text = [course.location, course.info].filter(Boolean).join("|");
+      if (!text) return null;
+      return quickLocations.find(location =>
+        (location.aliases || [location.name]).some(alias => text.includes(alias))
+      ) || null;
     }
 
     function mergeCourses(data, accountLabel) {
@@ -648,11 +843,15 @@
         const key = `${classNum},${teacherId}`;
         const name = course.class_name || course.name || "";
         const teacher = course.teacher_name || course.teacher || "";
+        const location = course.class_location || course.location || "";
+        const info = course.class_info || course.info || "";
         const old = courseMap.get(key);
         if (old) {
           old.accounts.add(accountLabel);
+          if (!old.location && location) old.location = location;
+          if (!old.info && info) old.info = info;
         } else {
-          courseMap.set(key, { classNum, teacherId, name, teacher, accounts: new Set([accountLabel]) });
+          courseMap.set(key, { classNum, teacherId, name, teacher, location, info, accounts: new Set([accountLabel]) });
         }
       }
     }
@@ -669,6 +868,7 @@
           course.teacherId,
           course.name,
           course.teacher,
+          course.location,
           Array.from(course.accounts).join("/")
         ].filter(Boolean).join(" | ");
         select.appendChild(opt);
@@ -685,6 +885,65 @@
       mapState = { lat: Number(lat), lng: Number(lng), zoom };
       renderMap();
       updatePreview();
+      updateQuickLocationSelection();
+    }
+
+    function initQuickLocations() {
+      const bar = $("quickLocationBar");
+      if (!bar) return;
+      const geoButton = $("geoBtn");
+      bar.innerHTML = "";
+      if (geoButton) bar.appendChild(geoButton);
+      quickLocations.forEach((location) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "secondary";
+        btn.textContent = location.name;
+        btn.title = `${Number(location.lng).toFixed(6)}, ${Number(location.lat).toFixed(6)}`;
+        btn.dataset.lat = Number(location.lat).toFixed(6);
+        btn.dataset.lng = Number(location.lng).toFixed(6);
+        btn.addEventListener("click", () => setLatLng(location.lat, location.lng, location.zoom || 16));
+        bar.appendChild(btn);
+      });
+      updateGeoButtonDataset();
+      updateQuickLocationSelection();
+    }
+
+    function updateLocationPanelSummary() {
+      $("locationPanelSummary").textContent = $("locationPanel").open ? "收起位置栏" : "其他位置";
+    }
+
+    function sameCoordinate(a, b) {
+      return Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) < 0.0000005;
+    }
+
+    function updateGeoButtonDataset() {
+      const geoButton = $("geoBtn");
+      if (!geoButton) return;
+      const geoLat = parseFloat(localStorage.getItem(storageKeys.geoLat) || "");
+      const geoLng = parseFloat(localStorage.getItem(storageKeys.geoLng) || "");
+      if (Number.isFinite(geoLat) && Number.isFinite(geoLng)) {
+        geoButton.dataset.lat = geoLat.toFixed(6);
+        geoButton.dataset.lng = geoLng.toFixed(6);
+        geoButton.title = `${geoLng.toFixed(6)}, ${geoLat.toFixed(6)}`;
+      } else {
+        delete geoButton.dataset.lat;
+        delete geoButton.dataset.lng;
+        geoButton.removeAttribute("title");
+      }
+    }
+
+    function updateQuickLocationSelection() {
+      const currentLat = parseFloat($("lat").value);
+      const currentLng = parseFloat($("lng").value);
+      document.querySelectorAll("#quickLocationBar button").forEach((btn) => {
+        const lat = parseFloat(btn.dataset.lat || "");
+        const lng = parseFloat(btn.dataset.lng || "");
+        btn.classList.toggle(
+          "selected",
+          sameCoordinate(currentLat, lat) && sameCoordinate(currentLng, lng)
+        );
+      });
     }
 
     function clampZoom(zoom) {
@@ -735,6 +994,7 @@
       $("lng").value = Number(center.lng).toFixed(6);
       renderMap();
       updatePreview();
+      updateQuickLocationSelection();
     }
 
     function zoomAt(clientX, clientY, delta) {
@@ -802,6 +1062,7 @@
       mapState.lng = point.lng;
       if (shouldRender) renderMap();
       updatePreview();
+      updateQuickLocationSelection();
     }
 
     function initMap() {
@@ -884,6 +1145,7 @@
         mapState.lng = next.lng;
         renderMap();
         updatePreview();
+        updateQuickLocationSelection();
       });
       $("map").addEventListener("pointerup", (event) => {
         if (isDraggingMap) {
@@ -926,6 +1188,10 @@
         setLatLng(center[0], center[1], 16);
       }
       window.addEventListener("resize", renderMap);
+      $("locationPanel").addEventListener("toggle", (event) => {
+        updateLocationPanelSummary();
+        if (event.target.open) renderMap();
+      });
     }
 
     $("sendBtn").addEventListener("click", async () => {
@@ -936,7 +1202,7 @@
         setStatus(`正在为 ${tokens.length} 个账号发送签到请求...`);
         const results = await Promise.all(tokens.map(async (account) => {
           try {
-            const result = await postJson(endpoint("/wechat/checkIn/checkInWithLocation"), body, account.token);
+            const result = await postJson("/wechat/checkIn/checkInWithLocation", body, account.token);
             return { account: account.label, ok: true, result };
           } catch (err) {
             return { account: account.label, ok: false, error: err.message };
@@ -964,6 +1230,9 @@
       setStatus("正在读取定位...");
       navigator.geolocation.getCurrentPosition(
         (pos) => {
+          localStorage.setItem(storageKeys.geoLat, Number(pos.coords.latitude).toFixed(6));
+          localStorage.setItem(storageKeys.geoLng, Number(pos.coords.longitude).toFixed(6));
+          updateGeoButtonDataset();
           setLatLng(pos.coords.latitude, pos.coords.longitude, mapState.zoom);
           setStatus("定位已填入");
         },
@@ -979,7 +1248,7 @@
 
     $("copyCurlBtn").addEventListener("click", async () => {
       updatePreview();
-      await copyText(curlCommand());
+      await copyText(await curlCommand());
     });
     $("zoomInBtn").addEventListener("click", () => {
       mapState.zoom = clampZoom(mapState.zoom + 1);
@@ -1026,12 +1295,15 @@
     ids.forEach((id) => {
       $(id).addEventListener("input", () => {
         updatePreview();
+        if (id === "lat" || id === "lng") updateQuickLocationSelection();
         if (id === "baseUrl") scheduleAutoCourses();
       });
     });
     $("courseSelect").addEventListener("change", () => fillCourseFromValue($("courseSelect").value));
     restoreState();
     updatePreview();
+    initQuickLocations();
+    updateLocationPanelSummary();
     initMap();
     if (allTokens().length) scheduleAutoCourses();
   </script>

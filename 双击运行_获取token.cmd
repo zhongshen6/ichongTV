@@ -197,6 +197,41 @@ function Format-TokenExpiry {
   }
 }
 
+function Get-Md5Hex {
+  param([string]$Text)
+
+  $md5 = [Security.Cryptography.MD5]::Create()
+  try {
+    return (($md5.ComputeHash([Text.Encoding]::UTF8.GetBytes($Text)) | ForEach-Object {
+      $_.ToString("x2")
+    }) -join "")
+  } finally {
+    $md5.Dispose()
+  }
+}
+
+function Invoke-SignedGetNew {
+  param(
+    [string]$Path,
+    [string]$Token,
+    [string]$SignSecret
+  )
+
+  $timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds().ToString()
+  $sign = Get-Md5Hex -Text ("GET|{0}|{1}|{2}" -f $Path, $timestamp, $SignSecret)
+
+  return Invoke-RestMethod `
+    -Uri "$BaseUrl$Path" `
+    -Method GET `
+    -Headers @{
+      Authorization = "Bearer $Token"
+      "Content-Type" = "application/json"
+      "X-Timestamp" = $timestamp
+      "X-Sign" = $sign
+    } `
+    -TimeoutSec 15
+}
+
 function Write-ResultSummary {
   param(
     [bool]$Usable,
@@ -326,13 +361,24 @@ function Test-TokenCandidates {
         continue
       }
 
-      $courses = Invoke-RestMethod `
-        -Uri "$BaseUrl/wechat/checkIn/myCourses" `
-        -Method GET `
-        -Headers @{ Authorization = "Bearer $token"; "Content-Type" = "application/json" } `
-        -TimeoutSec 15
+      $signSecret = $null
+      if ($check.data -and $check.data.signSecret) {
+        $signSecret = [string]$check.data.signSecret
+      }
 
-      Write-Log "Candidate #$script:candidateIndex myCourses code=$($courses.code) msg=$($courses.msg)"
+      if (-not $signSecret) {
+        Write-Log "Candidate #$script:candidateIndex checkToken did not return signSecret."
+        continue
+      }
+
+      Write-Log "Candidate #$script:candidateIndex signSecret length=$($signSecret.Length)"
+
+      $courses = Invoke-SignedGetNew `
+        -Path "/wechat/checkIn/myCourses" `
+        -Token $token `
+        -SignSecret $signSecret
+
+      Write-Log "Candidate #$script:candidateIndex signed myCourses code=$($courses.code) msg=$($courses.msg)"
 
       if ($courses.code -eq 200 -or $courses.code -eq 0 -or $courses.data) {
         $script:validToken = $token
