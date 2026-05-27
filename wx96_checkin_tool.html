@@ -590,6 +590,7 @@
       }).join("");
     }
 
+    const platformHeader = "wechat_mp";
     const signSecretCache = new Map();
 
     async function parseResponse(res) {
@@ -605,7 +606,8 @@
         method: "GET",
         headers: {
           Authorization: "Bearer " + token,
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          "X-Platform": platformHeader
         }
       });
       const result = await parseResponse(res);
@@ -624,9 +626,21 @@
       return {
         Authorization: "Bearer " + token,
         "Content-Type": "application/json",
+        "X-Platform": platformHeader,
         "X-Timestamp": timestamp,
         "X-Sign": md5(`${method.toUpperCase()}|${path}|${timestamp}|${signSecret}`)
       };
+    }
+
+    function shouldRetrySignedRequest(result, token) {
+      const body = result && result.body;
+      const code = body && Number(body.code);
+      const msg = body && String(body.msg || body.message || "");
+      if (code === 4011 || code === 4014 || /签名|signSecret/i.test(msg)) {
+        signSecretCache.delete(token);
+        return true;
+      }
+      return code === 4012 || code === 4013 || /请求已过期|已被使用/.test(msg);
     }
 
     function requestPreview() {
@@ -636,6 +650,7 @@
         headers: {
           Authorization: "Bearer <每个账号的 token>",
           "Content-Type": "application/json",
+          "X-Platform": "wechat_mp",
           "X-Timestamp": "<当前毫秒时间戳>",
           "X-Sign": "MD5(POST|/wechat/checkIn/checkInWithLocation|X-Timestamp|signSecret)"
         },
@@ -698,20 +713,37 @@
     }
 
     async function postJson(path, body, token = tokenValue()) {
-      const res = await fetch(endpoint(path), {
+      let res = await fetch(endpoint(path), {
         method: "POST",
         headers: await signedHeaders("POST", path, token),
         body: JSON.stringify(body)
       });
-      return parseResponse(res);
+      let result = await parseResponse(res);
+      if (shouldRetrySignedRequest(result, token)) {
+        res = await fetch(endpoint(path), {
+          method: "POST",
+          headers: await signedHeaders("POST", path, token),
+          body: JSON.stringify(body)
+        });
+        result = await parseResponse(res);
+      }
+      return result;
     }
 
     async function getJson(path, token = tokenValue()) {
-      const res = await fetch(endpoint(path), {
+      let res = await fetch(endpoint(path), {
         method: "GET",
         headers: await signedHeaders("GET", path, token)
       });
-      return parseResponse(res);
+      let result = await parseResponse(res);
+      if (shouldRetrySignedRequest(result, token)) {
+        res = await fetch(endpoint(path), {
+          method: "GET",
+          headers: await signedHeaders("GET", path, token)
+        });
+        result = await parseResponse(res);
+      }
+      return result;
     }
 
     async function loadCourses({ silent = false, auto = false } = {}) {
@@ -757,6 +789,7 @@
           `'${endpoint(path)}'`,
           "-H 'Authorization: Bearer " + account.token.replace(/'/g, "'\\''") + "'",
           "-H 'Content-Type: application/json'",
+          "-H 'X-Platform: " + platformHeader + "'",
           "-H 'X-Timestamp: " + headers["X-Timestamp"] + "'",
           "-H 'X-Sign: " + headers["X-Sign"] + "'",
           `--data '${body}'`

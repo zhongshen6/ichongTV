@@ -24,7 +24,8 @@ exit /b %EXIT_CODE%
 ### POWERSHELL_PAYLOAD ###
 param(
   [string]$BaseUrl = "https://icq.cqust.edu.cn/icqust-admin",
-  [string]$AppId = "wx96a1da8a627aa011"
+  [string]$AppId = "wx96a1da8a627aa011",
+  [string]$Platform = "wechat_mp"
 )
 
 $ErrorActionPreference = "Stop"
@@ -226,6 +227,7 @@ function Invoke-SignedGetNew {
     -Headers @{
       Authorization = "Bearer $Token"
       "Content-Type" = "application/json"
+      "X-Platform" = $Platform
       "X-Timestamp" = $timestamp
       "X-Sign" = $sign
     } `
@@ -352,7 +354,7 @@ function Test-TokenCandidates {
       $check = Invoke-RestMethod `
         -Uri "$BaseUrl/wechat/checkToken" `
         -Method GET `
-        -Headers @{ Authorization = "Bearer $token"; "Content-Type" = "application/json" } `
+        -Headers @{ Authorization = "Bearer $token"; "Content-Type" = "application/json"; "X-Platform" = $Platform } `
         -TimeoutSec 10
 
       Write-Log "Candidate #$script:candidateIndex from $Source length=$($token.Length) checkToken code=$($check.code)"
