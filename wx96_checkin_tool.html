@@ -308,7 +308,7 @@
 
     <section>
       <div class="token-header">
-        <label>Token</label>
+        <label>Token / 凭证包</label>
         <div class="token-actions">
           <button class="secondary" id="removeTokenBtn">减少 token</button>
           <button class="secondary" id="addTokenBtn">添加 token</button>
@@ -317,22 +317,22 @@
       <div id="tokenGrid" class="token-grid count-1">
         <div class="token-panel" data-token-panel="0">
           <div class="token-panel-title">账号 1</div>
-          <textarea id="token0" class="token-input" placeholder="粘贴 Bearer 后面的 token，不要带 Bearer"></textarea>
+          <textarea id="token0" class="token-input" placeholder="粘贴 CMD 输出的 Credential，或旧版纯 token"></textarea>
           <div id="tokenInfo0" class="inline-status">Token 未填写</div>
         </div>
         <div class="token-panel" data-token-panel="1" hidden>
           <div class="token-panel-title">账号 2</div>
-          <textarea id="token1" class="token-input" placeholder="粘贴第二个 token"></textarea>
+          <textarea id="token1" class="token-input" placeholder="粘贴第二个 Credential"></textarea>
           <div id="tokenInfo1" class="inline-status">Token 未填写</div>
         </div>
         <div class="token-panel" data-token-panel="2" hidden>
           <div class="token-panel-title">账号 3</div>
-          <textarea id="token2" class="token-input" placeholder="粘贴第三个 token"></textarea>
+          <textarea id="token2" class="token-input" placeholder="粘贴第三个 Credential"></textarea>
           <div id="tokenInfo2" class="inline-status">Token 未填写</div>
         </div>
         <div class="token-panel" data-token-panel="3" hidden>
           <div class="token-panel-title">账号 4</div>
-          <textarea id="token3" class="token-input" placeholder="粘贴第四个 token"></textarea>
+          <textarea id="token3" class="token-input" placeholder="粘贴第四个 Credential"></textarea>
           <div id="tokenInfo3" class="inline-status">Token 未填写</div>
         </div>
       </div>
@@ -414,6 +414,7 @@
     </section>
   </main>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
   <script>
     const $ = (id) => document.getElementById(id);
     const ids = ["classNum", "teacherId", "signCode", "baseUrl", "lat", "lng"];
@@ -449,20 +450,52 @@
     let pinchStart = null;
     let tokenPaneCount = 1;
     const courseMap = new Map();
+    const credentialSeparator = "#WX96KEY#";
 
     function tokenValue() {
-      return tokenAt(0);
+      const first = credentialAt(0);
+      return first ? first.token : "";
     }
 
     function tokenAt(index) {
-      return $(`token${index}`).value.trim().replace(/^Bearer\s+/i, "");
+      const credential = credentialAt(index);
+      return credential ? credential.token : "";
+    }
+
+    function rawCredentialAt(index) {
+      return $(`token${index}`).value.trim();
+    }
+
+    function parseCredential(raw) {
+      raw = String(raw || "").trim();
+      if (!raw) return null;
+
+      const parts = raw.split(credentialSeparator);
+      const token = parts[0].trim().replace(/^Bearer\s+/i, "");
+      let cryptoKey = null;
+
+      if (parts.length > 1) {
+        try {
+          cryptoKey = JSON.parse(parts.slice(1).join(credentialSeparator).trim());
+        } catch {
+          cryptoKey = { invalid: true };
+        }
+      }
+
+      return { raw, token, cryptoKey };
+    }
+
+    function credentialAt(index) {
+      const parsed = parseCredential(rawCredentialAt(index));
+      if (!parsed || !parsed.token) return null;
+      return parsed;
     }
 
     function allTokens() {
       const result = [];
       for (let i = 0; i < tokenPaneCount; i++) {
-        const token = tokenAt(i);
-        if (token) result.push({ index: i, label: `账号 ${i + 1}`, token });
+        const credential = credentialAt(i);
+        if (credential) result.push({ index: i, label: `账号 ${i + 1}`, ...credential });
       }
       return result;
     }
@@ -508,18 +541,28 @@
       for (let i = 0; i < maxTokenPanes; i++) {
         const info = $(`tokenInfo${i}`);
         if (!info) continue;
-        const token = tokenAt(i);
-        if (!token) {
-          info.textContent = "Token 未填写";
+        const credential = credentialAt(i);
+        if (!credential) {
+          info.textContent = "凭证未填写";
           continue;
         }
+        const { token, cryptoKey } = credential;
         const payload = getJwtPayload(token);
         if (!payload || !payload.exp) {
           info.textContent = "Token 已填写，无法解析过期时间";
           continue;
         }
         const expiresAt = new Date(payload.exp * 1000);
-        info.textContent = `过期时间：${expiresAt.toLocaleString()}，剩余：${formatRemaining(expiresAt - new Date())}`;
+        let keyText = "未带 crypto_key_info";
+        if (cryptoKey && cryptoKey.invalid) {
+          keyText = "crypto_key_info 格式错误";
+        } else if (cryptoKey && cryptoKey.expireAt) {
+          const keyExpiresAt = new Date(Number(cryptoKey.expireAt));
+          keyText = `key 过期：${keyExpiresAt.toLocaleString()}，剩余：${formatRemaining(keyExpiresAt - new Date())}`;
+        } else if (cryptoKey) {
+          keyText = "已带 crypto_key_info";
+        }
+        info.textContent = `Token 过期：${expiresAt.toLocaleString()}，剩余：${formatRemaining(expiresAt - new Date())}；${keyText}`;
       }
     }
 
@@ -590,6 +633,138 @@
       }).join("");
     }
 
+    function bytesToBase64(bytes) {
+      let binary = "";
+      const chunkSize = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode(...bytes.slice(i, i + chunkSize));
+      }
+      return btoa(binary);
+    }
+
+    function base64ToBytes(base64) {
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return bytes;
+    }
+
+    function wordArrayToBytes(wordArray) {
+      const bytes = new Uint8Array(wordArray.sigBytes);
+      for (let i = 0; i < wordArray.sigBytes; i++) {
+        bytes[i] = (wordArray.words[i >>> 2] >>> (24 - (i % 4) * 8)) & 255;
+      }
+      return bytes;
+    }
+
+    function decodeJsonFromBytes(bytes) {
+      const starts = [];
+      for (let i = 0; i < bytes.length; i++) {
+        if (bytes[i] === 0x7b || bytes[i] === 0x5b) starts.push(i);
+      }
+      for (const start of starts) {
+        const text = new TextDecoder().decode(bytes.slice(start)).trim();
+        try {
+          return JSON.parse(text);
+        } catch {}
+        if (text.startsWith("{")) {
+          try {
+            return JSON.parse("[" + text);
+          } catch {}
+          try {
+            return JSON.parse("[" + text + "]");
+          } catch {}
+        }
+      }
+      const text = new TextDecoder().decode(bytes).replace(/\0/g, "").trim();
+      const courseStart = text.match(/^\d+,\s*"class_num"\s*:/);
+      if (courseStart) {
+        try {
+          return JSON.parse('[{"class_id":136' + text);
+        } catch {}
+      }
+      return null;
+    }
+
+    function keyModeForVersion(cryptoKey) {
+      return Number(cryptoKey && cryptoKey.version) >= 2 ? "base64" : "utf8";
+    }
+
+    function requestPlainText(body) {
+      return JSON.stringify(body);
+    }
+
+    async function importAesKey(cryptoKey, keyMode = "utf8") {
+      if (!window.CryptoJS) {
+        throw new Error("CryptoJS 加载失败，无法生成新版加密请求");
+      }
+      if (!cryptoKey || cryptoKey.invalid) {
+        throw new Error("缺少或无法解析 crypto_key_info，请粘贴 CMD 输出的 Credential");
+      }
+      const keyText = String(cryptoKey.encryptKey || "");
+      const ivText = String(cryptoKey.iv || "");
+      const keyBytes = keyMode === "base64" ? base64ToBytes(keyText) : new TextEncoder().encode(keyText);
+      const ivBytes = keyMode === "base64" ? base64ToBytes(ivText) : new TextEncoder().encode(ivText);
+      if (![16, 24, 32].includes(keyBytes.length) || ![12, 16].includes(ivBytes.length)) {
+        throw new Error("crypto_key_info 长度异常，可能已粘贴不完整");
+      }
+      return {
+        key: keyMode === "base64" ? CryptoJS.enc.Base64.parse(keyText) : CryptoJS.enc.Utf8.parse(keyText),
+        iv: keyMode === "base64" ? CryptoJS.enc.Base64.parse(ivText) : CryptoJS.enc.Utf8.parse(ivText)
+      };
+    }
+
+    async function encryptRequestBody(body, cryptoKey) {
+      const { key, iv } = await importAesKey(cryptoKey, keyModeForVersion(cryptoKey));
+      return CryptoJS.AES.encrypt(requestPlainText(body), key, {
+        iv,
+        mode: CryptoJS.mode.CBC,
+        padding: CryptoJS.pad.Pkcs7
+      }).ciphertext.toString(CryptoJS.enc.Base64);
+    }
+
+    function decryptAesBase64(encData, key, iv, dropFirstBlock = false) {
+      let ciphertext = String(encData || "");
+      if (dropFirstBlock) {
+        const bytes = base64ToBytes(ciphertext);
+        if (bytes.length <= 16) return new Uint8Array();
+        ciphertext = bytesToBase64(bytes.slice(16));
+      }
+      const decrypted = CryptoJS.AES.decrypt({ ciphertext: CryptoJS.enc.Base64.parse(ciphertext) }, key, {
+        iv,
+        mode: CryptoJS.mode.CBC,
+        padding: CryptoJS.pad.Pkcs7
+      });
+      return wordArrayToBytes(decrypted);
+    }
+
+    async function decryptResponseBody(responseBody, cryptoKey) {
+      if (!responseBody || !responseBody.encData || !cryptoKey || cryptoKey.invalid) return responseBody;
+      const errors = [];
+      const attempts = Number(cryptoKey.version) >= 2
+        ? [
+            { keyMode: "base64", dropFirstBlock: false },
+            { keyMode: "base64", dropFirstBlock: true },
+            { keyMode: "utf8", dropFirstBlock: false }
+          ]
+        : [
+            { keyMode: "utf8", dropFirstBlock: false },
+            { keyMode: "base64", dropFirstBlock: false }
+          ];
+      for (const attempt of attempts) {
+        try {
+          const { key, iv } = await importAesKey(cryptoKey, attempt.keyMode);
+          const bytes = decryptAesBase64(responseBody.encData, key, iv, attempt.dropFirstBlock);
+          if (!bytes.length) continue;
+          const parsed = decodeJsonFromBytes(bytes);
+          if (parsed) return parsed;
+        } catch (err) {
+          errors.push(`${attempt.keyMode}${attempt.dropFirstBlock ? "/drop16" : ""}: ${err.message}`);
+        }
+      }
+      return { ...responseBody, decryptError: errors.join("; ") || "未能解析加密响应" };
+    }
+
     const platformHeader = "wechat_mp";
     const signSecretCache = new Map();
 
@@ -620,16 +795,32 @@
       return secret;
     }
 
-    async function signedHeaders(method, path, token) {
-      const signSecret = await getSignSecret(token);
+    function generateNonce() {
+      const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+      let out = "";
+      for (let i = 0; i < 8; i++) out += chars.charAt(Math.floor(Math.random() * chars.length));
+      return out;
+    }
+
+    async function signedHeaders(method, path, account, { bodyHash = "", query = "" } = {}) {
+      const signSecret = await getSignSecret(account.token);
       const timestamp = Date.now().toString();
-      return {
-        Authorization: "Bearer " + token,
+      const nonce = generateNonce();
+      const headers = {
+        Authorization: "Bearer " + account.token,
         "Content-Type": "application/json",
         "X-Platform": platformHeader,
         "X-Timestamp": timestamp,
-        "X-Sign": md5(`${method.toUpperCase()}|${path}|${timestamp}|${signSecret}`)
+        "X-Sign-Version": "2",
+        "X-Nonce": nonce,
+        "X-Body-Hash": bodyHash,
+        "X-Sign": md5(`${method.toUpperCase()}|${path}|${query}|${bodyHash}|${timestamp}|${nonce}|${signSecret}`)
       };
+      if (account.cryptoKey && !account.cryptoKey.invalid) {
+        headers["X-Encrypt-Type"] = account.cryptoKey.type || "wechat_official";
+        headers["X-Enc-Version"] = String(account.cryptoKey.version || 1);
+      }
+      return headers;
     }
 
     function shouldRetrySignedRequest(result, token) {
@@ -644,6 +835,10 @@
     }
 
     function requestPreview() {
+      const firstAccount = allTokens()[0];
+      const encVersion = firstAccount && firstAccount.cryptoKey && !firstAccount.cryptoKey.invalid
+        ? String(firstAccount.cryptoKey.version || 1)
+        : "<crypto_key_info.version>";
       return {
         url: endpoint("/wechat/checkIn/checkInWithLocation"),
         method: "POST",
@@ -652,10 +847,16 @@
           "Content-Type": "application/json",
           "X-Platform": "wechat_mp",
           "X-Timestamp": "<当前毫秒时间戳>",
-          "X-Sign": "MD5(POST|/wechat/checkIn/checkInWithLocation|X-Timestamp|signSecret)"
+          "X-Sign-Version": "2",
+          "X-Nonce": "<8位随机字符串>",
+          "X-Body-Hash": "MD5(encData).slice(0,16)",
+          "X-Encrypt-Type": "wechat_official",
+          "X-Enc-Version": encVersion,
+          "X-Sign": "MD5(POST|/wechat/checkIn/checkInWithLocation||X-Body-Hash|X-Timestamp|X-Nonce|signSecret)"
         },
         accountCount: allTokens().length,
-        body: bodyObject()
+        plainBody: bodyObject(),
+        wireBody: { encData: "<由 crypto_key_info 加密 plainBody 得到>" }
       };
     }
 
@@ -704,7 +905,9 @@
       const tokens = allTokens();
       const { cnum, location } = bodyObject();
       const code = $("signCode").value.trim();
-      if (tokens.length === 0) throw new Error("至少需要填写一个 token");
+      if (tokens.length === 0) throw new Error("至少需要填写一个凭证");
+      const missingKey = tokens.find(item => !item.cryptoKey || item.cryptoKey.invalid);
+      if (missingKey) throw new Error(`${missingKey.label} 缺少有效 crypto_key_info，请粘贴 CMD 输出的 Credential`);
       if (!$("classNum").value.trim()) throw new Error("缺少 class_num");
       if (!$("teacherId").value.trim()) throw new Error("缺少 class_teacherid");
       if (!/^\d{6}$/.test(code)) throw new Error("签到码必须是 6 位数字");
@@ -712,51 +915,66 @@
       return { cnum, location };
     }
 
-    async function postJson(path, body, token = tokenValue()) {
+    async function postJson(path, body, account = allTokens()[0]) {
+      if (!account || !account.cryptoKey || account.cryptoKey.invalid) {
+        throw new Error("缺少有效 crypto_key_info，无法生成新版加密请求");
+      }
+      const encData = await encryptRequestBody(body, account.cryptoKey);
+      const bodyHash = md5(encData).slice(0, 16);
+      const wireBody = JSON.stringify({ encData });
       let res = await fetch(endpoint(path), {
         method: "POST",
-        headers: await signedHeaders("POST", path, token),
-        body: JSON.stringify(body)
+        headers: await signedHeaders("POST", path, account, { bodyHash }),
+        body: wireBody
       });
       let result = await parseResponse(res);
-      if (shouldRetrySignedRequest(result, token)) {
+      result.body = await decryptResponseBody(result.body, account.cryptoKey);
+      if (shouldRetrySignedRequest(result, account.token)) {
         res = await fetch(endpoint(path), {
           method: "POST",
-          headers: await signedHeaders("POST", path, token),
-          body: JSON.stringify(body)
+          headers: await signedHeaders("POST", path, account, { bodyHash }),
+          body: wireBody
         });
         result = await parseResponse(res);
+        result.body = await decryptResponseBody(result.body, account.cryptoKey);
       }
       return result;
     }
 
-    async function getJson(path, token = tokenValue()) {
+    async function getJson(path, account = allTokens()[0]) {
+      if (!account || !account.cryptoKey || account.cryptoKey.invalid) {
+        throw new Error("缺少有效 crypto_key_info，无法读取新版加密响应");
+      }
       let res = await fetch(endpoint(path), {
         method: "GET",
-        headers: await signedHeaders("GET", path, token)
+        headers: await signedHeaders("GET", path, account)
       });
       let result = await parseResponse(res);
-      if (shouldRetrySignedRequest(result, token)) {
+      result.body = await decryptResponseBody(result.body, account.cryptoKey);
+      if (shouldRetrySignedRequest(result, account.token)) {
         res = await fetch(endpoint(path), {
           method: "GET",
-          headers: await signedHeaders("GET", path, token)
+          headers: await signedHeaders("GET", path, account)
         });
         result = await parseResponse(res);
+        result.body = await decryptResponseBody(result.body, account.cryptoKey);
       }
       return result;
     }
 
     async function loadCourses({ silent = false, auto = false } = {}) {
       const tokens = allTokens();
-      if (tokens.length === 0) throw new Error("至少需要填写一个 token");
+      if (tokens.length === 0) throw new Error("至少需要填写一个凭证");
       if (!silent) setStatus("正在获取课程列表...");
       const results = [];
       courseMap.clear();
       for (const account of tokens) {
         try {
-          const result = await getJson("/wechat/checkIn/myCourses", account.token);
+          const result = await getJson("/wechat/checkIn/myCourses", account);
           results.push({ account: account.label, ok: true, result });
-          if (result.body && result.body.data) {
+          if (Array.isArray(result.body)) {
+            mergeCourses(result.body, account.label);
+          } else if (result.body && result.body.data) {
             mergeCourses(result.body.data, account.label);
           }
         } catch (err) {
@@ -778,11 +996,17 @@
     }
 
     async function curlCommand() {
-      const body = JSON.stringify(bodyObject()).replace(/'/g, "'\\''");
       const path = "/wechat/checkIn/checkInWithLocation";
       const commands = [];
       for (const account of allTokens()) {
-        const headers = await signedHeaders("POST", path, account.token);
+        if (!account.cryptoKey || account.cryptoKey.invalid) {
+          throw new Error(`${account.label} 缺少有效 crypto_key_info`);
+        }
+        const plainBody = bodyObject();
+        const encData = await encryptRequestBody(plainBody, account.cryptoKey);
+        const bodyHash = md5(encData).slice(0, 16);
+        const body = JSON.stringify({ encData }).replace(/'/g, "'\\''");
+        const headers = await signedHeaders("POST", path, account, { bodyHash });
         commands.push([
           "# " + account.label,
           "curl -X POST",
@@ -791,6 +1015,11 @@
           "-H 'Content-Type: application/json'",
           "-H 'X-Platform: " + platformHeader + "'",
           "-H 'X-Timestamp: " + headers["X-Timestamp"] + "'",
+          "-H 'X-Sign-Version: " + headers["X-Sign-Version"] + "'",
+          "-H 'X-Nonce: " + headers["X-Nonce"] + "'",
+          "-H 'X-Body-Hash: " + headers["X-Body-Hash"] + "'",
+          "-H 'X-Encrypt-Type: " + headers["X-Encrypt-Type"] + "'",
+          "-H 'X-Enc-Version: " + headers["X-Enc-Version"] + "'",
           "-H 'X-Sign: " + headers["X-Sign"] + "'",
           `--data '${body}'`
         ].join(" "));
@@ -811,8 +1040,8 @@
     }
 
     function saveState() {
-      localStorage.setItem(storageKeys.token, tokenValue());
-      localStorage.setItem(storageKeys.tokens, JSON.stringify(Array.from({ length: maxTokenPanes }, (_, i) => tokenAt(i))));
+      localStorage.setItem(storageKeys.token, rawCredentialAt(0));
+      localStorage.setItem(storageKeys.tokens, JSON.stringify(Array.from({ length: maxTokenPanes }, (_, i) => rawCredentialAt(i))));
       localStorage.setItem(storageKeys.tokenPaneCount, String(tokenPaneCount));
       localStorage.setItem(storageKeys.baseUrl, $("baseUrl").value.trim());
       localStorage.setItem(storageKeys.lat, $("lat").value.trim());
@@ -1235,7 +1464,7 @@
         setStatus(`正在为 ${tokens.length} 个账号发送签到请求...`);
         const results = await Promise.all(tokens.map(async (account) => {
           try {
-            const result = await postJson("/wechat/checkIn/checkInWithLocation", body, account.token);
+            const result = await postJson("/wechat/checkIn/checkInWithLocation", body, account);
             return { account: account.label, ok: true, result };
           } catch (err) {
             return { account: account.label, ok: false, error: err.message };
@@ -1296,7 +1525,7 @@
     function scheduleAutoCourses() {
       clearTimeout(autoCourseTimer);
       autoCourseTimer = setTimeout(async () => {
-        const tokenSignature = allTokens().map(item => item.token).join("|");
+        const tokenSignature = allTokens().map(item => item.raw).join("|");
         if (!tokenSignature || tokenSignature === lastAutoCourseToken) return;
         lastAutoCourseToken = tokenSignature;
         try {

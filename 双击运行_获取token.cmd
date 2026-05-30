@@ -77,6 +77,7 @@ public class FastMemTokenScan {
 
   static Regex Jwt = new Regex(@"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}", RegexOptions.Compiled);
   static Regex Bearer = new Regex(@"Bearer\s+([A-Za-z0-9._\-~+/=]{20,2048})", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+  static Regex CryptoKey = new Regex(@"\{""type""\s*:\s*""wechat_official""\s*,\s*""encryptKey""\s*:\s*""[^""\\]+""\s*,\s*""iv""\s*:\s*""[^""\\]+""\s*,\s*""version""\s*:\s*\d+\s*,\s*""expireAt""\s*:\s*\d+\s*\}", RegexOptions.Compiled);
 
   public static List<string> Scan(uint[] pids) {
     var found = new HashSet<string>();
@@ -122,10 +123,12 @@ public class FastMemTokenScan {
                   string ascii = Encoding.ASCII.GetString(buf, 0, n);
                   foreach (Match m in Jwt.Matches(ascii)) found.Add(m.Value);
                   foreach (Match m in Bearer.Matches(ascii)) found.Add(m.Groups[1].Value);
+                  foreach (Match m in CryptoKey.Matches(ascii)) found.Add("KEY\t" + m.Value);
 
                   string unicode = Encoding.Unicode.GetString(buf, 0, n - (n % 2));
                   foreach (Match m in Jwt.Matches(unicode)) found.Add(m.Value);
                   foreach (Match m in Bearer.Matches(unicode)) found.Add(m.Groups[1].Value);
+                  foreach (Match m in CryptoKey.Matches(unicode)) found.Add("KEY\t" + m.Value);
                 }
               }
 
@@ -215,23 +218,116 @@ function Invoke-SignedGetNew {
   param(
     [string]$Path,
     [string]$Token,
-    [string]$SignSecret
+    [string]$SignSecret,
+    [object]$CryptoKeyInfo = $null
   )
 
   $timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds().ToString()
-  $sign = Get-Md5Hex -Text ("GET|{0}|{1}|{2}" -f $Path, $timestamp, $SignSecret)
+  $nonce = Get-RandomNonce
+  $sign = Get-Md5Hex -Text ("GET|{0}|||{1}|{2}|{3}" -f $Path, $timestamp, $nonce, $SignSecret)
 
-  return Invoke-RestMethod `
+  $headers = @{
+    Authorization = "Bearer $Token"
+    "Content-Type" = "application/json"
+    "X-Platform" = $Platform
+    "X-Timestamp" = $timestamp
+    "X-Sign-Version" = "2"
+    "X-Nonce" = $nonce
+    "X-Body-Hash" = ""
+    "X-Sign" = $sign
+  }
+
+  if ($CryptoKeyInfo) {
+    $headers["X-Encrypt-Type"] = [string]$CryptoKeyInfo.type
+    $headers["X-Enc-Version"] = [string]$CryptoKeyInfo.version
+  }
+
+  $result = Invoke-RestMethod `
     -Uri "$BaseUrl$Path" `
     -Method GET `
-    -Headers @{
-      Authorization = "Bearer $Token"
-      "Content-Type" = "application/json"
-      "X-Platform" = $Platform
-      "X-Timestamp" = $timestamp
-      "X-Sign" = $sign
-    } `
+    -Headers $headers `
     -TimeoutSec 15
+
+  if ($result.encData -and $CryptoKeyInfo) {
+    try {
+      $plain = ConvertFrom-Wx96EncryptedData -EncData ([string]$result.encData) -CryptoKeyInfo $CryptoKeyInfo
+      return $plain | ConvertFrom-Json
+    } catch {
+      Write-Log "Encrypted response was accepted by backend, but local course decrypt/parse failed: $($_.Exception.Message)"
+      return $result
+    }
+  }
+
+  return $result
+}
+
+function Get-RandomNonce {
+  $chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+  return -join (1..8 | ForEach-Object { $chars[(Get-Random -Minimum 0 -Maximum $chars.Length)] })
+}
+
+function ConvertFrom-Wx96EncryptedData {
+  param(
+    [string]$EncData,
+    [object]$CryptoKeyInfo
+  )
+
+  $errors = @()
+  $keyModes = @("utf8", "base64")
+  if ($CryptoKeyInfo -and [int]$CryptoKeyInfo.version -ge 2) {
+    $keyModes = @("base64", "utf8")
+  }
+  foreach ($keyMode in $keyModes) {
+    try {
+      $plain = ConvertFrom-Wx96EncryptedDataWithKeyMode -EncData $EncData -CryptoKeyInfo $CryptoKeyInfo -KeyMode $keyMode
+      $jsonStartCandidates = @(
+        $plain.IndexOf("{"),
+        $plain.IndexOf("[")
+      ) | Where-Object { $_ -ge 0 } | Sort-Object
+      if ($jsonStartCandidates.Count -gt 0 -and $jsonStartCandidates[0] -gt 0) {
+        $plain = $plain.Substring($jsonStartCandidates[0])
+      }
+      return $plain
+    } catch {
+      $errors += "$keyMode`: $($_.Exception.Message)"
+    }
+  }
+
+  throw "Unable to decrypt encData. $($errors -join '; ')"
+}
+
+function ConvertFrom-Wx96EncryptedDataWithKeyMode {
+  param(
+    [string]$EncData,
+    [object]$CryptoKeyInfo,
+    [string]$KeyMode
+  )
+
+  $cipher = [Convert]::FromBase64String($EncData)
+  if ($KeyMode -eq "base64") {
+    $key = [Convert]::FromBase64String([string]$CryptoKeyInfo.encryptKey)
+    $iv = [Convert]::FromBase64String([string]$CryptoKeyInfo.iv)
+  } else {
+    $key = [Text.Encoding]::UTF8.GetBytes([string]$CryptoKeyInfo.encryptKey)
+    $iv = [Text.Encoding]::UTF8.GetBytes([string]$CryptoKeyInfo.iv)
+  }
+  if ($iv.Length -eq 12) {
+    $tmp = New-Object byte[] 16
+    [Array]::Copy($iv, 0, $tmp, 0, 12)
+    $iv = $tmp
+  }
+  $aes = [Security.Cryptography.Aes]::Create()
+  try {
+    $aes.Mode = [Security.Cryptography.CipherMode]::CBC
+    $aes.Padding = [Security.Cryptography.PaddingMode]::PKCS7
+    $aes.Key = $key
+    $aes.IV = $iv
+    $decryptor = $aes.CreateDecryptor()
+    $plainBytes = $decryptor.TransformFinalBlock($cipher, 0, $cipher.Length)
+    return [Text.Encoding]::UTF8.GetString($plainBytes)
+  } finally {
+    $aes.Dispose()
+  }
 }
 
 function Write-ResultSummary {
@@ -239,7 +335,9 @@ function Write-ResultSummary {
     [bool]$Usable,
     [string]$Reason = "",
     [int]$CourseCount = 0,
-    [string]$Token = ""
+    [string]$Token = "",
+    [string]$Credential = "",
+    [object]$CryptoKeyInfo = $null
   )
 
   Write-Log "----- Result Summary -----"
@@ -256,6 +354,13 @@ function Write-ResultSummary {
   $expiry = Format-TokenExpiry -Token $Token
   Write-Log "Status: usable"
   Write-Log "Token: $Token"
+  if ($CryptoKeyInfo) {
+    $keyExpiry = [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$CryptoKeyInfo.expireAt).LocalDateTime
+    Write-Log "Crypto key expiry: $($keyExpiry.ToString("yyyy-MM-dd HH:mm:ss"))"
+  }
+  if ($Credential) {
+    Write-Log "Credential: $Credential"
+  }
   Write-Log "Token expiry: $($expiry.ExpiryText)"
   Write-Log "Token remaining: $($expiry.RemainingText)"
   Write-Log "Course count: $CourseCount"
@@ -335,13 +440,16 @@ Add-ProcessActivityInfo -Processes @($processes)
 
 $validToken = $null
 $validCourses = $null
+$validCryptoKey = $null
 $allCandidates = New-Object System.Collections.Generic.HashSet[string]
+$allCryptoKeys = New-Object System.Collections.Generic.HashSet[string]
 $candidateIndex = 0
 
 function Test-TokenCandidates {
   param(
     [string[]]$Tokens,
-    [string]$Source
+    [string]$Source,
+    [object]$CryptoKeyInfo = $null
   )
 
   foreach ($token in $Tokens) {
@@ -378,13 +486,15 @@ function Test-TokenCandidates {
       $courses = Invoke-SignedGetNew `
         -Path "/wechat/checkIn/myCourses" `
         -Token $token `
-        -SignSecret $signSecret
+        -SignSecret $signSecret `
+        -CryptoKeyInfo $CryptoKeyInfo
 
       Write-Log "Candidate #$script:candidateIndex signed myCourses code=$($courses.code) msg=$($courses.msg)"
 
       if ($courses.code -eq 200 -or $courses.code -eq 0 -or $courses.data) {
         $script:validToken = $token
         $script:validCourses = $courses
+        $script:validCryptoKey = $CryptoKeyInfo
         return $true
       }
     } catch {
@@ -439,11 +549,40 @@ foreach ($stage in $scanPlan) {
     $created = Format-ProcessCreationTime -CreationDate $proc.CreationDate
 
     Write-Log "Scanning PID=$($proc.ProcessId) created=$created cpuDelta=$('{0:N3}' -f $proc.CpuDelta) rendererClientId=$($proc.RendererClientId) preload=$($proc.IsPreload) stage=$($stage.Name)"
-    $tokens = [FastMemTokenScan]::Scan([uint32[]]@($proc.ProcessId))
-    Write-Log "PID=$($proc.ProcessId) candidate(s) found=$($tokens.Count)"
+    $scanItems = [FastMemTokenScan]::Scan([uint32[]]@($proc.ProcessId))
+    $tokens = @()
+    $cryptoKeys = @()
 
-    if ($tokens.Count -gt 0 -and (Test-TokenCandidates -Tokens $tokens -Source "PID=$($proc.ProcessId)")) {
-      break
+    foreach ($item in $scanItems) {
+      if ($item.StartsWith("KEY`t")) {
+        $keyJson = $item.Substring(4)
+        if ($allCryptoKeys.Add($keyJson)) {
+          try {
+            $cryptoKeys += ($keyJson | ConvertFrom-Json)
+          } catch {
+            Write-Log "Ignored malformed crypto_key_info from PID=$($proc.ProcessId): $($_.Exception.Message)"
+          }
+        }
+      } else {
+        $tokens += $item
+      }
+    }
+
+    Write-Log "PID=$($proc.ProcessId) token candidate(s)=$($tokens.Count) crypto key(s)=$($cryptoKeys.Count)"
+
+    if ($tokens.Count -gt 0) {
+      if ($cryptoKeys.Count -gt 0) {
+        foreach ($cryptoKey in $cryptoKeys) {
+          if (Test-TokenCandidates -Tokens $tokens -Source "PID=$($proc.ProcessId)" -CryptoKeyInfo $cryptoKey) {
+            break
+          }
+        }
+      } else {
+        Write-Log "PID=$($proc.ProcessId) has token candidates but no crypto_key_info; trying token verification only is not enough for the newest mini program."
+      }
+      if ($validToken) {
+        break
+      }
     }
   }
 
@@ -462,10 +601,17 @@ if ($allCandidates.Count -eq 0) {
 }
 
 if (-not $validToken) {
-  $reason = "No valid token passed backend verification."
+  $reason = "No valid token plus crypto_key_info passed backend verification."
   Write-Log $reason
   Write-ResultSummary -Usable $false -Reason $reason
   exit 4
+}
+
+if (-not $validCryptoKey) {
+  $reason = "Valid token found, but crypto_key_info was not found. Reopen the official mini program page and scan again."
+  Write-Log $reason
+  Write-ResultSummary -Usable $false -Reason $reason
+  exit 5
 }
 
 $courseCount = 0
@@ -475,5 +621,8 @@ if ($validCourses.data -is [System.Array]) {
   $courseCount = 1
 }
 
-Write-ResultSummary -Usable $true -CourseCount $courseCount -Token $validToken
+$cryptoKeyJson = $validCryptoKey | ConvertTo-Json -Compress
+$credential = "$validToken#WX96KEY#$cryptoKeyJson"
+
+Write-ResultSummary -Usable $true -CourseCount $courseCount -Token $validToken -Credential $credential -CryptoKeyInfo $validCryptoKey
 Write-Log "Done."
