@@ -37,6 +37,33 @@ function Write-Log {
   Write-Host $line
 }
 
+function Write-Plain {
+  param([string]$Message = "")
+  Write-Host $Message
+}
+
+function Set-ClipboardSafe {
+  param([string]$Text)
+
+  if (-not $Text) {
+    return $false
+  }
+
+  try {
+    Set-Clipboard -Value $Text
+    return $true
+  } catch {
+    try {
+      Add-Type -AssemblyName System.Windows.Forms
+      [Windows.Forms.Clipboard]::SetText($Text)
+      return $true
+    } catch {
+      Write-Log "Clipboard write failed: $($_.Exception.Message)"
+      return $false
+    }
+  }
+}
+
 function Add-MemoryScannerType {
   if ("FastMemTokenScan" -as [type]) {
     return
@@ -124,11 +151,19 @@ public class FastMemTokenScan {
                   foreach (Match m in Jwt.Matches(ascii)) found.Add(m.Value);
                   foreach (Match m in Bearer.Matches(ascii)) found.Add(m.Groups[1].Value);
                   foreach (Match m in CryptoKey.Matches(ascii)) found.Add("KEY\t" + m.Value);
+                  if (ascii.IndexOf("\\\"encryptKey\\\"", StringComparison.Ordinal) >= 0) {
+                    string asciiUnescaped = ascii.Replace("\\\"", "\"");
+                    foreach (Match m in CryptoKey.Matches(asciiUnescaped)) found.Add("KEY\t" + m.Value);
+                  }
 
                   string unicode = Encoding.Unicode.GetString(buf, 0, n - (n % 2));
                   foreach (Match m in Jwt.Matches(unicode)) found.Add(m.Value);
                   foreach (Match m in Bearer.Matches(unicode)) found.Add(m.Groups[1].Value);
                   foreach (Match m in CryptoKey.Matches(unicode)) found.Add("KEY\t" + m.Value);
+                  if (unicode.IndexOf("\\\"encryptKey\\\"", StringComparison.Ordinal) >= 0) {
+                    string unicodeUnescaped = unicode.Replace("\\\"", "\"");
+                    foreach (Match m in CryptoKey.Matches(unicodeUnescaped)) found.Add("KEY\t" + m.Value);
+                  }
                 }
               }
 
@@ -340,30 +375,57 @@ function Write-ResultSummary {
     [object]$CryptoKeyInfo = $null
   )
 
-  Write-Log "----- Result Summary -----"
+  Write-Plain ""
+  Write-Plain "============================================================"
+  Write-Plain " Result Summary"
+  Write-Plain "============================================================"
   if (-not $Usable) {
-    Write-Log "Status: unavailable"
+    Write-Plain "Status       : unavailable"
     if ($Reason) {
-      Write-Log "Reason: $Reason"
+      Write-Plain "Reason       : $Reason"
     }
-    Write-Log "Token expiry: unknown"
-    Write-Log "Course count: 0"
+    Write-Plain "Token expiry : unknown"
+    Write-Plain "Course count : 0"
+    Write-Plain ""
+    Write-Plain "Next steps   :"
+    Write-Plain "  1. Keep the official mini program open in PC WeChat."
+    Write-Plain "  2. Open a page that sends requests, such as course list or code sign."
+    Write-Plain "  3. Run this CMD again within a few minutes."
     return
   }
 
   $expiry = Format-TokenExpiry -Token $Token
-  Write-Log "Status: usable"
-  Write-Log "Token: $Token"
+  Write-Plain "Status       : usable"
+  Write-Plain "Course count : $CourseCount"
+  Write-Plain "Token expiry : $($expiry.ExpiryText)"
+  Write-Plain "Token left   : $($expiry.RemainingText)"
   if ($CryptoKeyInfo) {
     $keyExpiry = [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$CryptoKeyInfo.expireAt).LocalDateTime
-    Write-Log "Crypto key expiry: $($keyExpiry.ToString("yyyy-MM-dd HH:mm:ss"))"
+    $keyRemaining = $keyExpiry - (Get-Date)
+    $keyRemainingText = if ($keyRemaining.TotalSeconds -le 0) {
+      "expired by timestamp, but backend accepted it"
+    } else {
+      "{0}h {1}m" -f [Math]::Floor($keyRemaining.TotalHours), $keyRemaining.Minutes
+    }
+    Write-Plain "Key expiry   : $($keyExpiry.ToString("yyyy-MM-dd HH:mm:ss"))"
+    Write-Plain "Key left     : $keyRemainingText"
   }
+
   if ($Credential) {
-    Write-Log "Credential: $Credential"
+    $copied = Set-ClipboardSafe -Text $Credential
+    Write-Plain "Clipboard    : $(if ($copied) { "Credential copied" } else { "copy failed, copy manually below" })"
+    Write-Plain ""
+    Write-Plain "Paste into wx96_checkin_tool.html:"
+    Write-Plain "------------------------------------------------------------"
+    Write-Plain $Credential
+    Write-Plain "------------------------------------------------------------"
+  } else {
+    Write-Plain ""
+    Write-Plain "Token:"
+    Write-Plain "------------------------------------------------------------"
+    Write-Plain $Token
+    Write-Plain "------------------------------------------------------------"
   }
-  Write-Log "Token expiry: $($expiry.ExpiryText)"
-  Write-Log "Token remaining: $($expiry.RemainingText)"
-  Write-Log "Course count: $CourseCount"
 }
 
 function Format-ProcessCreationTime {
@@ -443,17 +505,29 @@ $validCourses = $null
 $validCryptoKey = $null
 $allCandidates = New-Object System.Collections.Generic.HashSet[string]
 $allCryptoKeys = New-Object System.Collections.Generic.HashSet[string]
+$testedCredentialPairs = New-Object System.Collections.Generic.HashSet[string]
+$knownTokens = @()
+$knownCryptoKeyEntries = @()
 $candidateIndex = 0
 
 function Test-TokenCandidates {
   param(
     [string[]]$Tokens,
     [string]$Source,
-    [object]$CryptoKeyInfo = $null
+    [object]$CryptoKeyInfo = $null,
+    [string]$CryptoKeyJson = ""
   )
 
   foreach ($token in $Tokens) {
-    if (-not $allCandidates.Add($token)) {
+    [void]$allCandidates.Add($token)
+
+    $pairKey = if ($CryptoKeyInfo -and $CryptoKeyJson) {
+      "$token`t$CryptoKeyJson"
+    } else {
+      "$token`tNO_KEY"
+    }
+
+    if (-not $testedCredentialPairs.Add($pairKey)) {
       continue
     }
 
@@ -505,6 +579,53 @@ function Test-TokenCandidates {
   return $false
 }
 
+function Add-TokenCandidate {
+  param([string]$Token)
+
+  if (-not $Token) {
+    return
+  }
+
+  [void]$allCandidates.Add($Token)
+
+  if (-not ($knownTokens -contains $Token)) {
+    $script:knownTokens += $Token
+  }
+}
+
+function Add-CryptoKeyCandidate {
+  param(
+    [string]$KeyJson,
+    [int]$SourceProcessId
+  )
+
+  if (-not $KeyJson) {
+    return $null
+  }
+
+  foreach ($entry in $knownCryptoKeyEntries) {
+    if ($entry.Json -eq $KeyJson) {
+      return $entry
+    }
+  }
+
+  if ($allCryptoKeys.Add($KeyJson)) {
+    try {
+      $entry = [pscustomobject]@{
+        Json = $KeyJson
+        Info = ($KeyJson | ConvertFrom-Json)
+        Pid = $SourceProcessId
+      }
+      $script:knownCryptoKeyEntries += $entry
+      return $entry
+    } catch {
+      Write-Log "Ignored malformed crypto_key_info from PID=$SourceProcessId`: $($_.Exception.Message)"
+    }
+  }
+
+  return $null
+}
+
 $rendererProcesses = $processes |
   Where-Object { $_.IsRenderer } |
   Sort-Object `
@@ -521,6 +642,15 @@ $nonRendererProcesses = $processes |
     @{ Expression = "CreationDate"; Descending = $true },
     @{ Expression = "CpuDelta"; Descending = $true }
 
+$hostProcesses = $nonRendererProcesses |
+  Where-Object { $_.CommandLine -notmatch "--type=" } |
+  Sort-Object `
+    @{ Expression = "CreationDate"; Descending = $true },
+    @{ Expression = "CpuDelta"; Descending = $true }
+
+$otherNonRendererProcesses = $nonRendererProcesses |
+  Where-Object { $_.CommandLine -match "--type=" }
+
 $networkProcesses = $processes |
   Where-Object { $_.IsNetworkService } |
   Sort-Object `
@@ -528,14 +658,15 @@ $networkProcesses = $processes |
     @{ Expression = "CpuDelta"; Descending = $true }
 
 $scanPlan = @(
+  @{ Name = "main host"; Processes = @($hostProcesses) },
   @{ Name = "newest renderer"; Processes = @($rendererProcesses | Select-Object -First 3) },
   @{ Name = "remaining renderer"; Processes = @($rendererProcesses | Select-Object -Skip 3) },
   @{ Name = "network service"; Processes = @($networkProcesses) },
-  @{ Name = "other WeChatAppEx"; Processes = @($nonRendererProcesses) }
+  @{ Name = "other WeChatAppEx"; Processes = @($otherNonRendererProcesses) }
 )
 
 Write-Log "Found $($processes.Count) WeChatAppEx.exe process(es)."
-Write-Log "Scan order: newest renderer -> remaining renderer -> network service -> other."
+Write-Log "Scan order: main host -> newest renderer -> remaining renderer -> network service -> other."
 
 foreach ($stage in $scanPlan) {
   $stageProcesses = @($stage.Processes)
@@ -551,34 +682,43 @@ foreach ($stage in $scanPlan) {
     Write-Log "Scanning PID=$($proc.ProcessId) created=$created cpuDelta=$('{0:N3}' -f $proc.CpuDelta) rendererClientId=$($proc.RendererClientId) preload=$($proc.IsPreload) stage=$($stage.Name)"
     $scanItems = [FastMemTokenScan]::Scan([uint32[]]@($proc.ProcessId))
     $tokens = @()
-    $cryptoKeys = @()
+    $cryptoKeyEntries = @()
 
     foreach ($item in $scanItems) {
       if ($item.StartsWith("KEY`t")) {
         $keyJson = $item.Substring(4)
-        if ($allCryptoKeys.Add($keyJson)) {
-          try {
-            $cryptoKeys += ($keyJson | ConvertFrom-Json)
-          } catch {
-            Write-Log "Ignored malformed crypto_key_info from PID=$($proc.ProcessId): $($_.Exception.Message)"
-          }
+        $entry = Add-CryptoKeyCandidate -KeyJson $keyJson -SourceProcessId $proc.ProcessId
+        if ($entry) {
+          $cryptoKeyEntries += $entry
         }
       } else {
         $tokens += $item
+        Add-TokenCandidate -Token $item
       }
     }
 
-    Write-Log "PID=$($proc.ProcessId) token candidate(s)=$($tokens.Count) crypto key(s)=$($cryptoKeys.Count)"
+    Write-Log "PID=$($proc.ProcessId) token candidate(s)=$($tokens.Count) crypto key(s)=$($cryptoKeyEntries.Count); known token(s)=$($knownTokens.Count) known key(s)=$($knownCryptoKeyEntries.Count)"
 
     if ($tokens.Count -gt 0) {
-      if ($cryptoKeys.Count -gt 0) {
-        foreach ($cryptoKey in $cryptoKeys) {
-          if (Test-TokenCandidates -Tokens $tokens -Source "PID=$($proc.ProcessId)" -CryptoKeyInfo $cryptoKey) {
+      if ($knownCryptoKeyEntries.Count -gt 0) {
+        foreach ($cryptoKeyEntry in $knownCryptoKeyEntries) {
+          if (Test-TokenCandidates -Tokens $tokens -Source "PID=$($proc.ProcessId), keyPID=$($cryptoKeyEntry.Pid)" -CryptoKeyInfo $cryptoKeyEntry.Info -CryptoKeyJson $cryptoKeyEntry.Json) {
             break
           }
         }
       } else {
         Write-Log "PID=$($proc.ProcessId) has token candidates but no crypto_key_info; trying token verification only is not enough for the newest mini program."
+      }
+      if ($validToken) {
+        break
+      }
+    }
+
+    if ($cryptoKeyEntries.Count -gt 0 -and $knownTokens.Count -gt 0) {
+      foreach ($cryptoKeyEntry in $cryptoKeyEntries) {
+        if (Test-TokenCandidates -Tokens $knownTokens -Source "known token(s), keyPID=$($cryptoKeyEntry.Pid)" -CryptoKeyInfo $cryptoKeyEntry.Info -CryptoKeyJson $cryptoKeyEntry.Json) {
+          break
+        }
       }
       if ($validToken) {
         break
@@ -601,7 +741,11 @@ if ($allCandidates.Count -eq 0) {
 }
 
 if (-not $validToken) {
-  $reason = "No valid token plus crypto_key_info passed backend verification."
+  if ($knownCryptoKeyEntries.Count -eq 0) {
+    $reason = "Token candidate found, but crypto_key_info was not found. Open the official mini program course list or code sign page, then scan again."
+  } else {
+    $reason = "No valid token plus crypto_key_info pair passed backend verification."
+  }
   Write-Log $reason
   Write-ResultSummary -Usable $false -Reason $reason
   exit 4
