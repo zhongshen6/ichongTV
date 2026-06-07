@@ -3,8 +3,10 @@ setlocal
 cd /d "%~dp0"
 set "SELF_CMD=%~f0"
 set "TMPPS=%TEMP%\wx96_token_scan_%RANDOM%_%RANDOM%.ps1"
+set "PS_ARGS="
+if /i "%~1"=="/skiplaunch" set "PS_ARGS=-SkipLaunch"
 
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$self=$env:SELF_CMD; $out=$env:TMPPS; $lines=[IO.File]::ReadAllLines($self,[Text.Encoding]::UTF8); $idx=[Array]::IndexOf($lines,'### POWERSHELL_PAYLOAD ###'); if($idx -lt 0){ throw 'payload marker not found' }; [IO.File]::WriteAllLines($out,$lines[($idx+1)..($lines.Length-1)],[Text.UTF8Encoding]::new($false))"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$self=$env:SELF_CMD; $out=$env:TMPPS; $lines=[IO.File]::ReadAllLines($self,[Text.Encoding]::UTF8); $idx=[Array]::IndexOf($lines,'### POWERSHELL_PAYLOAD ###'); if($idx -lt 0){ throw 'payload marker not found' }; [IO.File]::WriteAllLines($out,$lines[($idx+1)..($lines.Length-1)],[Text.UTF8Encoding]::new($true))"
 if errorlevel 1 (
   echo Failed to extract embedded PowerShell script.
   echo.
@@ -13,7 +15,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%TMPPS%"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%TMPPS%" %PS_ARGS%
 set "EXIT_CODE=%ERRORLEVEL%"
 del /f /q "%TMPPS%" >nul 2>nul
 echo.
@@ -25,7 +27,8 @@ exit /b %EXIT_CODE%
 param(
   [string]$BaseUrl = "https://icq.cqust.edu.cn/icqust-admin",
   [string]$AppId = "wx96a1da8a627aa011",
-  [string]$Platform = "wechat_mp"
+  [string]$Platform = "wechat_mp",
+  [switch]$SkipLaunch
 )
 
 $ErrorActionPreference = "Stop"
@@ -62,6 +65,44 @@ function Set-ClipboardSafe {
       return $false
     }
   }
+}
+
+function Open-MiniProgramAndWait {
+  param([string]$TargetAppId)
+
+  if ($SkipLaunch) {
+    Write-Log "Skip mini program launch because -SkipLaunch was supplied."
+    return
+  }
+
+  $launchUrl = "weixin://launchapplet/?app_id=$TargetAppId"
+  Write-Plain ""
+  Write-Plain "============================================================"
+  Write-Plain " 打开 i重科小程序"
+  Write-Plain "============================================================"
+  Write-Plain "正在调用: $launchUrl"
+  Write-Plain ""
+
+  $started = $false
+  try {
+    $startInfo = New-Object Diagnostics.ProcessStartInfo
+    $startInfo.FileName = $launchUrl
+    $startInfo.UseShellExecute = $true
+    [Diagnostics.Process]::Start($startInfo) | Out-Null
+    $started = $true
+  } catch {
+    Write-Log "ShellExecute launch failed: $($_.Exception.Message)"
+  }
+
+  if (-not $started) {
+    Start-Process -FilePath "rundll32.exe" -ArgumentList "url.dll,FileProtocolHandler `"$launchUrl`"" -ErrorAction SilentlyContinue
+  }
+
+  Write-Plain "请在电脑微信中确认 i重科已经打开。"
+  Write-Plain "如需登录，请先完成登录。"
+  Write-Plain "建议进入“课程列表/我的课表/数字签到”等会发起请求的页面。"
+  Write-Plain ""
+  Read-Host "确认完成后，回到这个窗口按回车开始扫描"
 }
 
 function Add-MemoryScannerType {
@@ -483,6 +524,8 @@ function Add-ProcessActivityInfo {
     Add-Member -InputObject $proc -NotePropertyName IsNetworkService -NotePropertyValue ($cmd -like "*network.mojom.NetworkService*") -Force
   }
 }
+
+Open-MiniProgramAndWait -TargetAppId $AppId
 
 Write-Log "Start scanning WeChatAppEx.exe memory for $AppId token."
 Write-Log "Output directory: $scriptDir"

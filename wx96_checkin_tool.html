@@ -657,6 +657,14 @@
       return bytes;
     }
 
+    function bytesToWordArray(bytes) {
+      const words = [];
+      for (let i = 0; i < bytes.length; i++) {
+        words[i >>> 2] |= bytes[i] << (24 - (i % 4) * 8);
+      }
+      return CryptoJS.lib.WordArray.create(words, bytes.length);
+    }
+
     function decodeJsonFromBytes(bytes) {
       const starts = [];
       for (let i = 0; i < bytes.length; i++) {
@@ -694,44 +702,110 @@
       return JSON.stringify(body);
     }
 
-    async function importAesKey(cryptoKey, keyMode = "utf8") {
-      if (!window.CryptoJS) {
-        throw new Error("CryptoJS 加载失败，无法生成新版加密请求");
+    function randomBytes(length) {
+      const bytes = new Uint8Array(length);
+      if (window.crypto && window.crypto.getRandomValues) {
+        window.crypto.getRandomValues(bytes);
+      } else {
+        for (let i = 0; i < length; i++) bytes[i] = Math.floor(Math.random() * 256);
       }
+      return bytes;
+    }
+
+    function decodeCryptoText(text, mode) {
+      if (mode === "base64-padded") {
+        const bytes = base64ToBytes(text);
+        if (bytes.length >= 16) return bytes.slice(0, 16);
+        const padded = new Uint8Array(16);
+        padded.set(bytes);
+        return padded;
+      }
+      return mode === "base64" ? base64ToBytes(text) : new TextEncoder().encode(text);
+    }
+
+    function cryptoJsParseText(text, mode) {
+      if (mode === "base64-padded") return bytesToWordArray(decodeCryptoText(text, mode));
+      return mode === "base64" ? CryptoJS.enc.Base64.parse(text) : CryptoJS.enc.Utf8.parse(text);
+    }
+
+    async function importAesKey(cryptoKey, keyMode = "utf8", ivMode = keyMode) {
       if (!cryptoKey || cryptoKey.invalid) {
         throw new Error("缺少或无法解析 crypto_key_info，请粘贴 CMD 输出的 Credential");
       }
       const keyText = String(cryptoKey.encryptKey || "");
       const ivText = String(cryptoKey.iv || "");
-      const keyBytes = keyMode === "base64" ? base64ToBytes(keyText) : new TextEncoder().encode(keyText);
-      const ivBytes = keyMode === "base64" ? base64ToBytes(ivText) : new TextEncoder().encode(ivText);
+      const keyBytes = decodeCryptoText(keyText, keyMode);
+      const ivBytes = decodeCryptoText(ivText, ivMode);
       if (![16, 24, 32].includes(keyBytes.length) || ![12, 16].includes(ivBytes.length)) {
-        throw new Error("crypto_key_info 长度异常，可能已粘贴不完整");
+        throw new Error(`crypto_key_info 长度异常，key=${keyBytes.length} iv=${ivBytes.length}`);
       }
+      const subtle = window.crypto && window.crypto.subtle;
       return {
-        key: keyMode === "base64" ? CryptoJS.enc.Base64.parse(keyText) : CryptoJS.enc.Utf8.parse(keyText),
-        iv: keyMode === "base64" ? CryptoJS.enc.Base64.parse(ivText) : CryptoJS.enc.Utf8.parse(ivText)
+        keyBytes,
+        ivBytes,
+        subtleKey: subtle ? await subtle.importKey("raw", keyBytes, { name: "AES-CBC" }, false, ["encrypt", "decrypt"]) : null,
+        cryptoJsKey: window.CryptoJS ? cryptoJsParseText(keyText, keyMode) : null,
+        cryptoJsIv: window.CryptoJS ? cryptoJsParseText(ivText, ivMode) : null
       };
     }
 
     async function encryptRequestBody(body, cryptoKey) {
-      const { key, iv } = await importAesKey(cryptoKey, keyModeForVersion(cryptoKey));
-      return CryptoJS.AES.encrypt(requestPlainText(body), key, {
-        iv,
+      const isOfficialKey = Number(cryptoKey && cryptoKey.version) >= 2;
+      const aes = isOfficialKey
+        ? await importAesKey(cryptoKey, "base64", "base64-padded")
+        : await importAesKey(cryptoKey, keyModeForVersion(cryptoKey));
+      const requestBytes = new TextEncoder().encode(requestPlainText(body));
+      if (aes.subtleKey && window.crypto && window.crypto.subtle) {
+        const encrypted = await window.crypto.subtle.encrypt(
+          { name: "AES-CBC", iv: aes.ivBytes },
+          aes.subtleKey,
+          requestBytes
+        );
+        return bytesToBase64(new Uint8Array(encrypted));
+      }
+      if (!window.CryptoJS) {
+        throw new Error("浏览器不支持 WebCrypto，且 CryptoJS 加载失败，无法生成新版加密请求");
+      }
+      const requestPlain = isOfficialKey
+        ? CryptoJS.enc.Base64.parse(bytesToBase64(requestBytes))
+        : requestPlainText(body);
+      return CryptoJS.AES.encrypt(requestPlain, aes.cryptoJsKey, {
+        iv: aes.cryptoJsIv,
         mode: CryptoJS.mode.CBC,
         padding: CryptoJS.pad.Pkcs7
       }).ciphertext.toString(CryptoJS.enc.Base64);
     }
 
-    function decryptAesBase64(encData, key, iv, dropFirstBlock = false) {
+    async function decryptAesBase64(encData, aes, dropFirstBlock = false) {
       let ciphertext = String(encData || "");
+      let ivBytes = aes.ivBytes;
+      let cryptoJsIv = aes.cryptoJsIv;
+      if (ciphertext.includes(":")) {
+        const parts = ciphertext.split(":");
+        if (parts.length >= 2) {
+          ivBytes = base64ToBytes(parts[0]);
+          cryptoJsIv = window.CryptoJS ? CryptoJS.enc.Base64.parse(parts[0]) : cryptoJsIv;
+          ciphertext = parts.slice(1).join(":");
+        }
+      }
       if (dropFirstBlock) {
         const bytes = base64ToBytes(ciphertext);
         if (bytes.length <= 16) return new Uint8Array();
         ciphertext = bytesToBase64(bytes.slice(16));
       }
-      const decrypted = CryptoJS.AES.decrypt({ ciphertext: CryptoJS.enc.Base64.parse(ciphertext) }, key, {
-        iv,
+      if (aes.subtleKey && window.crypto && window.crypto.subtle) {
+        const decrypted = await window.crypto.subtle.decrypt(
+          { name: "AES-CBC", iv: ivBytes },
+          aes.subtleKey,
+          base64ToBytes(ciphertext)
+        );
+        return new Uint8Array(decrypted);
+      }
+      if (!window.CryptoJS) {
+        throw new Error("浏览器不支持 WebCrypto，且 CryptoJS 加载失败，无法解析新版加密响应");
+      }
+      const decrypted = CryptoJS.AES.decrypt({ ciphertext: CryptoJS.enc.Base64.parse(ciphertext) }, aes.cryptoJsKey, {
+        iv: cryptoJsIv,
         mode: CryptoJS.mode.CBC,
         padding: CryptoJS.pad.Pkcs7
       });
@@ -740,26 +814,32 @@
 
     async function decryptResponseBody(responseBody, cryptoKey) {
       if (!responseBody || !responseBody.encData || !cryptoKey || cryptoKey.invalid) return responseBody;
+      if (String(responseBody.encData || "").length < 64) return responseBody;
       const errors = [];
       const attempts = Number(cryptoKey.version) >= 2
         ? [
-            { keyMode: "base64", dropFirstBlock: false },
-            { keyMode: "base64", dropFirstBlock: true },
-            { keyMode: "utf8", dropFirstBlock: false }
+            { keyMode: "base64", ivMode: "base64-padded", dropFirstBlock: false },
+            { keyMode: "base64", ivMode: "utf8", dropFirstBlock: false },
+            { keyMode: "base64", ivMode: "utf8", dropFirstBlock: true },
+            { keyMode: "base64", ivMode: "base64", dropFirstBlock: false },
+            { keyMode: "base64", ivMode: "base64", dropFirstBlock: true },
+            { keyMode: "utf8", ivMode: "utf8", dropFirstBlock: false }
           ]
         : [
-            { keyMode: "utf8", dropFirstBlock: false },
-            { keyMode: "base64", dropFirstBlock: false }
+            { keyMode: "utf8", ivMode: "utf8", dropFirstBlock: false },
+            { keyMode: "base64", ivMode: "utf8", dropFirstBlock: false },
+            { keyMode: "base64", ivMode: "base64-padded", dropFirstBlock: false },
+            { keyMode: "base64", ivMode: "base64", dropFirstBlock: false }
           ];
       for (const attempt of attempts) {
         try {
-          const { key, iv } = await importAesKey(cryptoKey, attempt.keyMode);
-          const bytes = decryptAesBase64(responseBody.encData, key, iv, attempt.dropFirstBlock);
+          const aes = await importAesKey(cryptoKey, attempt.keyMode, attempt.ivMode);
+          const bytes = await decryptAesBase64(responseBody.encData, aes, attempt.dropFirstBlock);
           if (!bytes.length) continue;
           const parsed = decodeJsonFromBytes(bytes);
           if (parsed) return parsed;
         } catch (err) {
-          errors.push(`${attempt.keyMode}${attempt.dropFirstBlock ? "/drop16" : ""}: ${err.message}`);
+          errors.push(`${attempt.keyMode}/${attempt.ivMode}${attempt.dropFirstBlock ? "/drop16" : ""}: ${err.message}`);
         }
       }
       return { ...responseBody, decryptError: errors.join("; ") || "未能解析加密响应" };
@@ -802,7 +882,7 @@
       return out;
     }
 
-    async function signedHeaders(method, path, account, { bodyHash = "", query = "" } = {}) {
+    async function signedHeaders(method, path, account, { bodyHash = "", query = "", encrypted = true } = {}) {
       const signSecret = await getSignSecret(account.token);
       const timestamp = Date.now().toString();
       const nonce = generateNonce();
@@ -816,7 +896,7 @@
         "X-Body-Hash": bodyHash,
         "X-Sign": md5(`${method.toUpperCase()}|${path}|${query}|${bodyHash}|${timestamp}|${nonce}|${signSecret}`)
       };
-      if (account.cryptoKey && !account.cryptoKey.invalid) {
+      if (encrypted && account.cryptoKey && !account.cryptoKey.invalid) {
         headers["X-Encrypt-Type"] = account.cryptoKey.type || "wechat_official";
         headers["X-Enc-Version"] = String(account.cryptoKey.version || 1);
       }
