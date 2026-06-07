@@ -694,155 +694,146 @@
       return null;
     }
 
-    function keyModeForVersion(cryptoKey) {
-      return Number(cryptoKey && cryptoKey.version) >= 2 ? "base64" : "utf8";
-    }
-
-    function requestPlainText(body) {
-      return JSON.stringify(body);
-    }
-
-    function randomBytes(length) {
-      const bytes = new Uint8Array(length);
-      if (window.crypto && window.crypto.getRandomValues) {
-        window.crypto.getRandomValues(bytes);
-      } else {
-        for (let i = 0; i < length; i++) bytes[i] = Math.floor(Math.random() * 256);
-      }
-      return bytes;
-    }
-
-    function decodeCryptoText(text, mode) {
-      if (mode === "base64-padded") {
-        const bytes = base64ToBytes(text);
-        if (bytes.length >= 16) return bytes.slice(0, 16);
-        const padded = new Uint8Array(16);
-        padded.set(bytes);
-        return padded;
-      }
-      return mode === "base64" ? base64ToBytes(text) : new TextEncoder().encode(text);
-    }
-
-    function cryptoJsParseText(text, mode) {
-      if (mode === "base64-padded") return bytesToWordArray(decodeCryptoText(text, mode));
-      return mode === "base64" ? CryptoJS.enc.Base64.parse(text) : CryptoJS.enc.Utf8.parse(text);
-    }
-
-    async function importAesKey(cryptoKey, keyMode = "utf8", ivMode = keyMode) {
-      if (!cryptoKey || cryptoKey.invalid) {
-        throw new Error("缺少或无法解析 crypto_key_info，请粘贴 CMD 输出的 Credential");
-      }
-      const keyText = String(cryptoKey.encryptKey || "");
-      const ivText = String(cryptoKey.iv || "");
-      const keyBytes = decodeCryptoText(keyText, keyMode);
-      const ivBytes = decodeCryptoText(ivText, ivMode);
-      if (![16, 24, 32].includes(keyBytes.length) || ![12, 16].includes(ivBytes.length)) {
-        throw new Error(`crypto_key_info 长度异常，key=${keyBytes.length} iv=${ivBytes.length}`);
-      }
-      const subtle = window.crypto && window.crypto.subtle;
-      return {
-        keyBytes,
-        ivBytes,
-        subtleKey: subtle ? await subtle.importKey("raw", keyBytes, { name: "AES-CBC" }, false, ["encrypt", "decrypt"]) : null,
-        cryptoJsKey: window.CryptoJS ? cryptoJsParseText(keyText, keyMode) : null,
-        cryptoJsIv: window.CryptoJS ? cryptoJsParseText(ivText, ivMode) : null
+    const CryptoAdapter = (() => {
+      const textEncoder = new TextEncoder();
+      const textDecoder = new TextDecoder();
+      const keyModes = {
+        utf8: (text) => textEncoder.encode(String(text || "")),
+        base64: (text) => base64ToBytes(String(text || "")),
+        base64Pad16: (text) => {
+          const bytes = base64ToBytes(String(text || ""));
+          if (bytes.length === 16) return bytes;
+          const padded = new Uint8Array(16);
+          padded.set(bytes.slice(0, 16));
+          return padded;
+        }
       };
-    }
 
-    async function encryptRequestBody(body, cryptoKey) {
-      const isOfficialKey = Number(cryptoKey && cryptoKey.version) >= 2;
-      const aes = isOfficialKey
-        ? await importAesKey(cryptoKey, "base64", "base64-padded")
-        : await importAesKey(cryptoKey, keyModeForVersion(cryptoKey));
-      const requestBytes = new TextEncoder().encode(requestPlainText(body));
-      if (aes.subtleKey && window.crypto && window.crypto.subtle) {
-        const encrypted = await window.crypto.subtle.encrypt(
+      function assertCredential(cryptoKey) {
+        if (!cryptoKey || cryptoKey.invalid) {
+          throw new Error("缺少或无法解析 crypto_key_info，请粘贴 CMD 输出的 Credential");
+        }
+      }
+
+      function buildStrategies(cryptoKey, purpose) {
+        const isV2 = Number(cryptoKey && cryptoKey.version) >= 2;
+        if (purpose === "encrypt") {
+          return isV2
+            ? [{ name: "v2/base64-key+utf8-iv", keyMode: "base64", ivMode: "utf8" }]
+            : [{ name: "v1/utf8-key+utf8-iv", keyMode: "utf8", ivMode: "utf8" }];
+        }
+        return isV2
+          ? [
+              { name: "v2/base64-key+utf8-iv", keyMode: "base64", ivMode: "utf8" },
+              { name: "v2/base64-key+base64-iv", keyMode: "base64", ivMode: "base64" },
+              { name: "v2/base64-key+base64Pad16-iv", keyMode: "base64", ivMode: "base64Pad16" },
+              { name: "v2/base64-key+utf8-iv/drop16", keyMode: "base64", ivMode: "utf8", dropFirstBlock: true }
+            ]
+          : [
+              { name: "v1/utf8-key+utf8-iv", keyMode: "utf8", ivMode: "utf8" },
+              { name: "v1/base64-key+utf8-iv", keyMode: "base64", ivMode: "utf8" },
+              { name: "v1/base64-key+base64-iv", keyMode: "base64", ivMode: "base64" }
+            ];
+      }
+
+      function parseBytes(value, mode) {
+        const parser = keyModes[mode];
+        if (!parser) throw new Error(`未知编码模式：${mode}`);
+        return parser(value);
+      }
+
+      function ensureAesLengths(keyBytes, ivBytes) {
+        if (![16, 24, 32].includes(keyBytes.length)) {
+          throw new Error(`AES key 长度异常：${keyBytes.length} bytes`);
+        }
+        if (ivBytes.length !== 16) {
+          throw new Error(`AES-CBC iv 长度异常：${ivBytes.length} bytes`);
+        }
+      }
+
+      async function importKey(cryptoKey, strategy) {
+        assertCredential(cryptoKey);
+        const keyBytes = parseBytes(cryptoKey.encryptKey, strategy.keyMode);
+        const ivBytes = parseBytes(cryptoKey.iv, strategy.ivMode);
+        ensureAesLengths(keyBytes, ivBytes);
+        return crypto.subtle.importKey("raw", keyBytes, { name: "AES-CBC" }, false, ["encrypt", "decrypt"])
+          .then((subtleKey) => ({ subtleKey, ivBytes }));
+      }
+
+      function normalizeCipherText(encData, strategy) {
+        let text = String(encData || "");
+        let ivOverride = null;
+        if (text.includes(":")) {
+          const parts = text.split(":");
+          if (parts.length >= 2) {
+            ivOverride = base64ToBytes(parts[0]);
+            text = parts.slice(1).join(":");
+          }
+        }
+        let bytes = base64ToBytes(text);
+        if (strategy.dropFirstBlock) bytes = bytes.slice(16);
+        return { bytes, ivOverride };
+      }
+
+      function decodePlainBytes(bytes) {
+        const starts = [];
+        for (let i = 0; i < bytes.length; i++) {
+          if (bytes[i] === 0x7b || bytes[i] === 0x5b) starts.push(i);
+        }
+        for (const start of starts) {
+          const text = textDecoder.decode(bytes.slice(start)).replace(/\0+$/g, "").trim();
+          try { return JSON.parse(text); } catch {}
+        }
+        const text = textDecoder.decode(bytes).replace(/\0/g, "").trim();
+        try { return JSON.parse(text); } catch {}
+        return null;
+      }
+
+      async function encrypt(body, cryptoKey) {
+        assertCredential(cryptoKey);
+        const strategy = buildStrategies(cryptoKey, "encrypt")[0];
+        const aes = await importKey(cryptoKey, strategy);
+        const encrypted = await crypto.subtle.encrypt(
           { name: "AES-CBC", iv: aes.ivBytes },
           aes.subtleKey,
-          requestBytes
+          textEncoder.encode(JSON.stringify(body))
         );
         return bytesToBase64(new Uint8Array(encrypted));
       }
-      if (!window.CryptoJS) {
-        throw new Error("浏览器不支持 WebCrypto，且 CryptoJS 加载失败，无法生成新版加密请求");
-      }
-      const requestPlain = isOfficialKey
-        ? CryptoJS.enc.Base64.parse(bytesToBase64(requestBytes))
-        : requestPlainText(body);
-      return CryptoJS.AES.encrypt(requestPlain, aes.cryptoJsKey, {
-        iv: aes.cryptoJsIv,
-        mode: CryptoJS.mode.CBC,
-        padding: CryptoJS.pad.Pkcs7
-      }).ciphertext.toString(CryptoJS.enc.Base64);
-    }
 
-    async function decryptAesBase64(encData, aes, dropFirstBlock = false) {
-      let ciphertext = String(encData || "");
-      let ivBytes = aes.ivBytes;
-      let cryptoJsIv = aes.cryptoJsIv;
-      if (ciphertext.includes(":")) {
-        const parts = ciphertext.split(":");
-        if (parts.length >= 2) {
-          ivBytes = base64ToBytes(parts[0]);
-          cryptoJsIv = window.CryptoJS ? CryptoJS.enc.Base64.parse(parts[0]) : cryptoJsIv;
-          ciphertext = parts.slice(1).join(":");
+      async function decryptResponse(responseBody, cryptoKey) {
+        if (!responseBody || !responseBody.encData || !cryptoKey || cryptoKey.invalid) return responseBody;
+        const encData = String(responseBody.encData || "");
+        if (encData.length < 24) return responseBody;
+
+        const errors = [];
+        for (const strategy of buildStrategies(cryptoKey, "decrypt")) {
+          try {
+            const aes = await importKey(cryptoKey, strategy);
+            const cipher = normalizeCipherText(encData, strategy);
+            const decrypted = await crypto.subtle.decrypt(
+              { name: "AES-CBC", iv: cipher.ivOverride || aes.ivBytes },
+              aes.subtleKey,
+              cipher.bytes
+            );
+            const parsed = decodePlainBytes(new Uint8Array(decrypted));
+            if (parsed) return parsed;
+          } catch (err) {
+            errors.push(`${strategy.name}: ${err.message}`);
+          }
         }
+        return { ...responseBody, decryptError: errors.join("; ") || "未能解析加密响应" };
       }
-      if (dropFirstBlock) {
-        const bytes = base64ToBytes(ciphertext);
-        if (bytes.length <= 16) return new Uint8Array();
-        ciphertext = bytesToBase64(bytes.slice(16));
-      }
-      if (aes.subtleKey && window.crypto && window.crypto.subtle) {
-        const decrypted = await window.crypto.subtle.decrypt(
-          { name: "AES-CBC", iv: ivBytes },
-          aes.subtleKey,
-          base64ToBytes(ciphertext)
-        );
-        return new Uint8Array(decrypted);
-      }
-      if (!window.CryptoJS) {
-        throw new Error("浏览器不支持 WebCrypto，且 CryptoJS 加载失败，无法解析新版加密响应");
-      }
-      const decrypted = CryptoJS.AES.decrypt({ ciphertext: CryptoJS.enc.Base64.parse(ciphertext) }, aes.cryptoJsKey, {
-        iv: cryptoJsIv,
-        mode: CryptoJS.mode.CBC,
-        padding: CryptoJS.pad.Pkcs7
-      });
-      return wordArrayToBytes(decrypted);
+
+      return { encrypt, decryptResponse };
+    })();
+
+    async function encryptRequestBody(body, cryptoKey) {
+      return CryptoAdapter.encrypt(body, cryptoKey);
     }
 
     async function decryptResponseBody(responseBody, cryptoKey) {
-      if (!responseBody || !responseBody.encData || !cryptoKey || cryptoKey.invalid) return responseBody;
-      if (String(responseBody.encData || "").length < 64) return responseBody;
-      const errors = [];
-      const attempts = Number(cryptoKey.version) >= 2
-        ? [
-            { keyMode: "base64", ivMode: "base64-padded", dropFirstBlock: false },
-            { keyMode: "base64", ivMode: "utf8", dropFirstBlock: false },
-            { keyMode: "base64", ivMode: "utf8", dropFirstBlock: true },
-            { keyMode: "base64", ivMode: "base64", dropFirstBlock: false },
-            { keyMode: "base64", ivMode: "base64", dropFirstBlock: true },
-            { keyMode: "utf8", ivMode: "utf8", dropFirstBlock: false }
-          ]
-        : [
-            { keyMode: "utf8", ivMode: "utf8", dropFirstBlock: false },
-            { keyMode: "base64", ivMode: "utf8", dropFirstBlock: false },
-            { keyMode: "base64", ivMode: "base64-padded", dropFirstBlock: false },
-            { keyMode: "base64", ivMode: "base64", dropFirstBlock: false }
-          ];
-      for (const attempt of attempts) {
-        try {
-          const aes = await importAesKey(cryptoKey, attempt.keyMode, attempt.ivMode);
-          const bytes = await decryptAesBase64(responseBody.encData, aes, attempt.dropFirstBlock);
-          if (!bytes.length) continue;
-          const parsed = decodeJsonFromBytes(bytes);
-          if (parsed) return parsed;
-        } catch (err) {
-          errors.push(`${attempt.keyMode}/${attempt.ivMode}${attempt.dropFirstBlock ? "/drop16" : ""}: ${err.message}`);
-        }
-      }
-      return { ...responseBody, decryptError: errors.join("; ") || "未能解析加密响应" };
+      return CryptoAdapter.decryptResponse(responseBody, cryptoKey);
     }
 
     const platformHeader = "wechat_mp";
@@ -1042,6 +1033,57 @@
       return result;
     }
 
+    const CourseStore = (() => {
+      function arraysFrom(value, out = []) {
+        if (!value || typeof value !== "object") return out;
+        if (Array.isArray(value)) {
+          out.push(value);
+          return out;
+        }
+        ["data", "list", "rows", "records", "result", "courses"].forEach((key) => {
+          if (value[key] !== undefined) arraysFrom(value[key], out);
+        });
+        return out;
+      }
+
+      function looksLikeCourse(row) {
+        if (!row || typeof row !== "object") return false;
+        return Boolean(
+          row.class_num || row.classNum || row.code ||
+          row.class_teacherid || row.teacherId || row.classTeacherid
+        );
+      }
+
+      function extractRows(responseBody) {
+        return arraysFrom(responseBody)
+          .flat()
+          .filter(looksLikeCourse);
+      }
+
+      function addRows(rows, accountLabel) {
+        for (const course of rows) {
+          const classNum = course.class_num || course.classNum || course.code || "";
+          const teacherId = course.class_teacherid || course.teacherId || course.classTeacherid || "";
+          if (!classNum || !teacherId) continue;
+          const key = `${classNum},${teacherId}`;
+          const name = course.class_name || course.name || "";
+          const teacher = course.teacher_name || course.teacher || "";
+          const location = course.class_location || course.location || "";
+          const info = course.class_info || course.info || "";
+          const old = courseMap.get(key);
+          if (old) {
+            old.accounts.add(accountLabel);
+            if (!old.location && location) old.location = location;
+            if (!old.info && info) old.info = info;
+          } else {
+            courseMap.set(key, { classNum, teacherId, name, teacher, location, info, accounts: new Set([accountLabel]) });
+          }
+        }
+      }
+
+      return { extractRows, addRows };
+    })();
+
     async function loadCourses({ silent = false, auto = false } = {}) {
       const tokens = allTokens();
       if (tokens.length === 0) throw new Error("至少需要填写一个凭证");
@@ -1051,12 +1093,9 @@
       for (const account of tokens) {
         try {
           const result = await getJson("/wechat/checkIn/myCourses", account);
-          results.push({ account: account.label, ok: true, result });
-          if (Array.isArray(result.body)) {
-            mergeCourses(result.body, account.label);
-          } else if (result.body && result.body.data) {
-            mergeCourses(result.body.data, account.label);
-          }
+          const rows = CourseStore.extractRows(result.body);
+          CourseStore.addRows(rows, account.label);
+          results.push({ account: account.label, ok: true, courseCount: rows.length, result });
         } catch (err) {
           results.push({ account: account.label, ok: false, error: err.message });
         }
@@ -1174,28 +1213,6 @@
       return quickLocations.find(location =>
         (location.aliases || [location.name]).some(alias => text.includes(alias))
       ) || null;
-    }
-
-    function mergeCourses(data, accountLabel) {
-      const rows = Array.isArray(data) ? data : [];
-      for (const course of rows) {
-        const classNum = course.class_num || course.classNum || course.code || "";
-        const teacherId = course.class_teacherid || course.teacherId || course.classTeacherid || "";
-        if (!classNum || !teacherId) continue;
-        const key = `${classNum},${teacherId}`;
-        const name = course.class_name || course.name || "";
-        const teacher = course.teacher_name || course.teacher || "";
-        const location = course.class_location || course.location || "";
-        const info = course.class_info || course.info || "";
-        const old = courseMap.get(key);
-        if (old) {
-          old.accounts.add(accountLabel);
-          if (!old.location && location) old.location = location;
-          if (!old.info && info) old.info = info;
-        } else {
-          courseMap.set(key, { classNum, teacherId, name, teacher, location, info, accounts: new Set([accountLabel]) });
-        }
-      }
     }
 
     function renderCourses() {
