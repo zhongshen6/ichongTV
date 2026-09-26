@@ -716,19 +716,15 @@
       }
 
       function buildStrategies(cryptoKey, purpose) {
-        const isV2 = Number(cryptoKey && cryptoKey.version) >= 2;
+        const isOfficial = cryptoKey.type === "wechat_official"
+          || (!cryptoKey.type && Number(cryptoKey.version) >= 2);
         if (purpose === "encrypt") {
-          return isV2
-            ? [{ name: "v2/base64-key+utf8-iv", keyMode: "base64", ivMode: "utf8" }]
+          return isOfficial
+            ? [{ name: "wechat_official", keyMode: "base64", ivMode: "base64Pad16" }]
             : [{ name: "v1/utf8-key+utf8-iv", keyMode: "utf8", ivMode: "utf8" }];
         }
-        return isV2
-          ? [
-              { name: "v2/base64-key+utf8-iv", keyMode: "base64", ivMode: "utf8" },
-              { name: "v2/base64-key+base64-iv", keyMode: "base64", ivMode: "base64" },
-              { name: "v2/base64-key+base64Pad16-iv", keyMode: "base64", ivMode: "base64Pad16" },
-              { name: "v2/base64-key+utf8-iv/drop16", keyMode: "base64", ivMode: "utf8", dropFirstBlock: true }
-            ]
+        return isOfficial
+          ? [{ name: "wechat_official", keyMode: "base64", ivMode: "base64Pad16" }]
           : [
               { name: "v1/utf8-key+utf8-iv", keyMode: "utf8", ivMode: "utf8" },
               { name: "v1/base64-key+utf8-iv", keyMode: "base64", ivMode: "utf8" },
@@ -760,7 +756,7 @@
           .then((subtleKey) => ({ subtleKey, ivBytes }));
       }
 
-      function normalizeCipherText(encData, strategy) {
+      function normalizeCipherText(encData) {
         let text = String(encData || "");
         let ivOverride = null;
         if (text.includes(":")) {
@@ -770,9 +766,7 @@
             text = parts.slice(1).join(":");
           }
         }
-        let bytes = base64ToBytes(text);
-        if (strategy.dropFirstBlock) bytes = bytes.slice(16);
-        return { bytes, ivOverride };
+        return { bytes: base64ToBytes(text), ivOverride };
       }
 
       function decodePlainBytes(bytes) {
@@ -801,28 +795,44 @@
         return bytesToBase64(new Uint8Array(encrypted));
       }
 
-      async function decryptResponse(responseBody, cryptoKey) {
+      async function decryptResponse(responseBody, cryptoKey, signSecret) {
         if (!responseBody || !responseBody.encData || !cryptoKey || cryptoKey.invalid) return responseBody;
+        if (responseBody.code !== undefined && ![0, 200].includes(Number(responseBody.code))) {
+          return responseBody;
+        }
         const encData = String(responseBody.encData || "");
-        if (encData.length < 24) return responseBody;
+        if (encData.length < 24) throw new Error("加密响应格式异常");
+        if (responseBody.mac) {
+          const expectedMac = signSecret ? await hmacSha256(encData, signSecret) : "";
+          if (expectedMac !== String(responseBody.mac).toLowerCase()) {
+            throw new Error("响应 MAC 校验失败");
+          }
+        }
 
         const errors = [];
         for (const strategy of buildStrategies(cryptoKey, "decrypt")) {
           try {
             const aes = await importKey(cryptoKey, strategy);
-            const cipher = normalizeCipherText(encData, strategy);
+            const cipher = normalizeCipherText(encData);
             const decrypted = await crypto.subtle.decrypt(
               { name: "AES-CBC", iv: cipher.ivOverride || aes.ivBytes },
               aes.subtleKey,
               cipher.bytes
             );
             const parsed = decodePlainBytes(new Uint8Array(decrypted));
-            if (parsed) return parsed;
+            if (parsed) {
+              const result = { ...responseBody };
+              delete result.encData;
+              delete result.mac;
+              if (result.total !== undefined) result.rows = parsed;
+              else result.data = parsed;
+              return result;
+            }
           } catch (err) {
             errors.push(`${strategy.name}: ${err.message}`);
           }
         }
-        return { ...responseBody, decryptError: errors.join("; ") || "未能解析加密响应" };
+        throw new Error(errors.join("; ") || "未能解析加密响应");
       }
 
       return { encrypt, decryptResponse };
@@ -832,8 +842,12 @@
       return CryptoAdapter.encrypt(body, cryptoKey);
     }
 
-    async function decryptResponseBody(responseBody, cryptoKey) {
-      return CryptoAdapter.decryptResponse(responseBody, cryptoKey);
+    async function decryptResponseBody(responseBody, cryptoKey, account) {
+      return CryptoAdapter.decryptResponse(
+        responseBody,
+        cryptoKey,
+        signSecretCache.get(account.token) || ""
+      );
     }
 
     const platformHeader = "wechat_mp";
@@ -873,19 +887,36 @@
       return out;
     }
 
+    async function hmacSha256(text, secret) {
+      const encoder = new TextEncoder();
+      const key = await crypto.subtle.importKey(
+        "raw",
+        encoder.encode(secret),
+        { name: "HMAC", hash: "SHA-256" },
+        false,
+        ["sign"]
+      );
+      const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(text));
+      return Array.from(new Uint8Array(signature), byte => byte.toString(16).padStart(2, "0")).join("");
+    }
+
     async function signedHeaders(method, path, account, { bodyHash = "", query = "", encrypted = true } = {}) {
       const signSecret = await getSignSecret(account.token);
       const timestamp = Date.now().toString();
       const nonce = generateNonce();
+      const sign = await hmacSha256(
+        `${method.toUpperCase()}|${path}|${query}|${bodyHash}|${timestamp}|${nonce}|${signSecret}`,
+        signSecret
+      );
       const headers = {
         Authorization: "Bearer " + account.token,
         "Content-Type": "application/json",
         "X-Platform": platformHeader,
         "X-Timestamp": timestamp,
-        "X-Sign-Version": "2",
+        "X-Sign-Version": "3",
         "X-Nonce": nonce,
         "X-Body-Hash": bodyHash,
-        "X-Sign": md5(`${method.toUpperCase()}|${path}|${query}|${bodyHash}|${timestamp}|${nonce}|${signSecret}`)
+        "X-Sign": sign
       };
       if (encrypted && account.cryptoKey && !account.cryptoKey.invalid) {
         headers["X-Encrypt-Type"] = account.cryptoKey.type || "wechat_official";
@@ -905,6 +936,11 @@
       return code === 4012 || code === 4013 || /请求已过期|已被使用/.test(msg);
     }
 
+    function requestSucceeded(result) {
+      return Boolean(result && result.ok && result.body
+        && [0, 200].includes(Number(result.body.code)));
+    }
+
     function requestPreview() {
       const firstAccount = allTokens()[0];
       const encVersion = firstAccount && firstAccount.cryptoKey && !firstAccount.cryptoKey.invalid
@@ -918,12 +954,12 @@
           "Content-Type": "application/json",
           "X-Platform": "wechat_mp",
           "X-Timestamp": "<当前毫秒时间戳>",
-          "X-Sign-Version": "2",
+          "X-Sign-Version": "3",
           "X-Nonce": "<8位随机字符串>",
           "X-Body-Hash": "MD5(encData).slice(0,16)",
           "X-Encrypt-Type": "wechat_official",
           "X-Enc-Version": encVersion,
-          "X-Sign": "MD5(POST|/wechat/checkIn/checkInWithLocation||X-Body-Hash|X-Timestamp|X-Nonce|signSecret)"
+          "X-Sign": "HMAC-SHA256(POST|/wechat/checkIn/checkInWithLocation||X-Body-Hash|X-Timestamp|X-Nonce|signSecret, signSecret)"
         },
         accountCount: allTokens().length,
         plainBody: bodyObject(),
@@ -999,7 +1035,7 @@
         body: wireBody
       });
       let result = await parseResponse(res);
-      result.body = await decryptResponseBody(result.body, account.cryptoKey);
+      result.body = await decryptResponseBody(result.body, account.cryptoKey, account);
       if (shouldRetrySignedRequest(result, account.token)) {
         res = await fetch(endpoint(path), {
           method: "POST",
@@ -1007,7 +1043,7 @@
           body: wireBody
         });
         result = await parseResponse(res);
-        result.body = await decryptResponseBody(result.body, account.cryptoKey);
+        result.body = await decryptResponseBody(result.body, account.cryptoKey, account);
       }
       return result;
     }
@@ -1021,14 +1057,14 @@
         headers: await signedHeaders("GET", path, account)
       });
       let result = await parseResponse(res);
-      result.body = await decryptResponseBody(result.body, account.cryptoKey);
+      result.body = await decryptResponseBody(result.body, account.cryptoKey, account);
       if (shouldRetrySignedRequest(result, account.token)) {
         res = await fetch(endpoint(path), {
           method: "GET",
           headers: await signedHeaders("GET", path, account)
         });
         result = await parseResponse(res);
-        result.body = await decryptResponseBody(result.body, account.cryptoKey);
+        result.body = await decryptResponseBody(result.body, account.cryptoKey, account);
       }
       return result;
     }
@@ -1093,9 +1129,10 @@
       for (const account of tokens) {
         try {
           const result = await getJson("/wechat/checkIn/myCourses", account);
-          const rows = CourseStore.extractRows(result.body);
-          CourseStore.addRows(rows, account.label);
-          results.push({ account: account.label, ok: true, courseCount: rows.length, result });
+          const ok = requestSucceeded(result);
+          const rows = ok ? CourseStore.extractRows(result.body) : [];
+          if (ok) CourseStore.addRows(rows, account.label);
+          results.push({ account: account.label, ok, courseCount: rows.length, result });
         } catch (err) {
           results.push({ account: account.label, ok: false, error: err.message });
         }
@@ -1562,7 +1599,7 @@
         const results = await Promise.all(tokens.map(async (account) => {
           try {
             const result = await postJson("/wechat/checkIn/checkInWithLocation", body, account);
-            return { account: account.label, ok: true, result };
+            return { account: account.label, ok: requestSucceeded(result), result };
           } catch (err) {
             return { account: account.label, ok: false, error: err.message };
           }

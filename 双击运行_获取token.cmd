@@ -277,16 +277,19 @@ function Format-TokenExpiry {
   }
 }
 
-function Get-Md5Hex {
-  param([string]$Text)
+function Get-HmacSha256Hex {
+  param(
+    [string]$Text,
+    [string]$Key
+  )
 
-  $md5 = [Security.Cryptography.MD5]::Create()
+  $hmac = [Security.Cryptography.HMACSHA256]::new([Text.Encoding]::UTF8.GetBytes($Key))
   try {
-    return (($md5.ComputeHash([Text.Encoding]::UTF8.GetBytes($Text)) | ForEach-Object {
+    return (($hmac.ComputeHash([Text.Encoding]::UTF8.GetBytes($Text)) | ForEach-Object {
       $_.ToString("x2")
     }) -join "")
   } finally {
-    $md5.Dispose()
+    $hmac.Dispose()
   }
 }
 
@@ -300,14 +303,14 @@ function Invoke-SignedGetNew {
 
   $timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds().ToString()
   $nonce = Get-RandomNonce
-  $sign = Get-Md5Hex -Text ("GET|{0}|||{1}|{2}|{3}" -f $Path, $timestamp, $nonce, $SignSecret)
+  $sign = Get-HmacSha256Hex -Text ("GET|{0}|||{1}|{2}|{3}" -f $Path, $timestamp, $nonce, $SignSecret) -Key $SignSecret
 
   $headers = @{
     Authorization = "Bearer $Token"
     "Content-Type" = "application/json"
     "X-Platform" = $Platform
     "X-Timestamp" = $timestamp
-    "X-Sign-Version" = "2"
+    "X-Sign-Version" = "3"
     "X-Nonce" = $nonce
     "X-Body-Hash" = ""
     "X-Sign" = $sign
