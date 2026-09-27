@@ -317,7 +317,7 @@
       <div id="tokenGrid" class="token-grid count-1">
         <div class="token-panel" data-token-panel="0">
           <div class="token-panel-title">账号 1</div>
-          <textarea id="token0" class="token-input" placeholder="粘贴 CMD 输出的 Credential，或旧版纯 token"></textarea>
+          <textarea id="token0" class="token-input" placeholder="粘贴 CMD 输出的 Credential"></textarea>
           <div id="tokenInfo0" class="inline-status">Token 未填写</div>
         </div>
         <div class="token-panel" data-token-panel="1" hidden>
@@ -345,10 +345,6 @@
           </select>
         </div>
         <div class="compact-fields">
-          <div>
-            <label for="baseUrl">Base URL</label>
-            <input id="baseUrl" value="https://icq.cqust.edu.cn/icqust-admin">
-          </div>
           <div>
             <label for="classNum">class_num</label>
             <input id="classNum" placeholder="例如 3GS1290A.13">
@@ -398,13 +394,12 @@
         <button id="sendBtn">发送签到请求</button>
         <button class="secondary" id="coursesBtn">获取课程列表</button>
         <button class="secondary" id="copyJsonBtn">复制 JSON</button>
-        <button class="secondary" id="copyCurlBtn">复制 curl</button>
       </div>
-      <p class="hint">请求体格式：{"cnum":"class_num-teacherId-签到码","location":"纬度:lat经度:lng"}。地图使用高德 GCJ-02 坐标。</p>
+      <p class="hint">地图使用高德 GCJ-02 坐标。</p>
     </section>
 
     <section>
-      <label for="preview">请求预览</label>
+      <label for="preview">签到参数</label>
       <textarea id="preview" readonly></textarea>
     </section>
 
@@ -414,16 +409,14 @@
     </section>
   </main>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
   <script>
     const $ = (id) => document.getElementById(id);
-    const ids = ["classNum", "teacherId", "signCode", "baseUrl", "lat", "lng"];
+    const ids = ["classNum", "teacherId", "signCode", "lat", "lng"];
     const maxTokenPanes = 4;
     const storageKeys = {
       token: "wx96_tool_token",
       tokens: "wx96_tool_tokens",
       tokenPaneCount: "wx96_tool_token_pane_count",
-      baseUrl: "wx96_tool_base_url",
       lastCourse: "wx96_tool_last_course",
       lat: "wx96_tool_lat",
       lng: "wx96_tool_lng",
@@ -500,10 +493,6 @@
       return result;
     }
 
-    function endpoint(path) {
-      return $("baseUrl").value.trim().replace(/\/+$/, "") + path;
-    }
-
     function bodyObject() {
       const classNum = $("classNum").value.trim();
       const teacherId = $("teacherId").value.trim();
@@ -566,405 +555,24 @@
       }
     }
 
-    function md5(input) {
-      function add32(a, b) { return (a + b) & 0xffffffff; }
-      function cmn(q, a, b, x, s, t) {
-        a = add32(add32(a, q), add32(x, t));
-        return add32((a << s) | (a >>> (32 - s)), b);
-      }
-      function ff(a, b, c, d, x, s, t) { return cmn((b & c) | (~b & d), a, b, x, s, t); }
-      function gg(a, b, c, d, x, s, t) { return cmn((b & d) | (c & ~d), a, b, x, s, t); }
-      function hh(a, b, c, d, x, s, t) { return cmn(b ^ c ^ d, a, b, x, s, t); }
-      function ii(a, b, c, d, x, s, t) { return cmn(c ^ (b | ~d), a, b, x, s, t); }
-      function block(words, state) {
-        let [a, b, c, d] = state;
-        const olda = a, oldb = b, oldc = c, oldd = d;
-        a = ff(a, b, c, d, words[0], 7, -680876936); d = ff(d, a, b, c, words[1], 12, -389564586);
-        c = ff(c, d, a, b, words[2], 17, 606105819); b = ff(b, c, d, a, words[3], 22, -1044525330);
-        a = ff(a, b, c, d, words[4], 7, -176418897); d = ff(d, a, b, c, words[5], 12, 1200080426);
-        c = ff(c, d, a, b, words[6], 17, -1473231341); b = ff(b, c, d, a, words[7], 22, -45705983);
-        a = ff(a, b, c, d, words[8], 7, 1770035416); d = ff(d, a, b, c, words[9], 12, -1958414417);
-        c = ff(c, d, a, b, words[10], 17, -42063); b = ff(b, c, d, a, words[11], 22, -1990404162);
-        a = ff(a, b, c, d, words[12], 7, 1804603682); d = ff(d, a, b, c, words[13], 12, -40341101);
-        c = ff(c, d, a, b, words[14], 17, -1502002290); b = ff(b, c, d, a, words[15], 22, 1236535329);
-        a = gg(a, b, c, d, words[1], 5, -165796510); d = gg(d, a, b, c, words[6], 9, -1069501632);
-        c = gg(c, d, a, b, words[11], 14, 643717713); b = gg(b, c, d, a, words[0], 20, -373897302);
-        a = gg(a, b, c, d, words[5], 5, -701558691); d = gg(d, a, b, c, words[10], 9, 38016083);
-        c = gg(c, d, a, b, words[15], 14, -660478335); b = gg(b, c, d, a, words[4], 20, -405537848);
-        a = gg(a, b, c, d, words[9], 5, 568446438); d = gg(d, a, b, c, words[14], 9, -1019803690);
-        c = gg(c, d, a, b, words[3], 14, -187363961); b = gg(b, c, d, a, words[8], 20, 1163531501);
-        a = gg(a, b, c, d, words[13], 5, -1444681467); d = gg(d, a, b, c, words[2], 9, -51403784);
-        c = gg(c, d, a, b, words[7], 14, 1735328473); b = gg(b, c, d, a, words[12], 20, -1926607734);
-        a = hh(a, b, c, d, words[5], 4, -378558); d = hh(d, a, b, c, words[8], 11, -2022574463);
-        c = hh(c, d, a, b, words[11], 16, 1839030562); b = hh(b, c, d, a, words[14], 23, -35309556);
-        a = hh(a, b, c, d, words[1], 4, -1530992060); d = hh(d, a, b, c, words[4], 11, 1272893353);
-        c = hh(c, d, a, b, words[7], 16, -155497632); b = hh(b, c, d, a, words[10], 23, -1094730640);
-        a = hh(a, b, c, d, words[13], 4, 681279174); d = hh(d, a, b, c, words[0], 11, -358537222);
-        c = hh(c, d, a, b, words[3], 16, -722521979); b = hh(b, c, d, a, words[6], 23, 76029189);
-        a = hh(a, b, c, d, words[9], 4, -640364487); d = hh(d, a, b, c, words[12], 11, -421815835);
-        c = hh(c, d, a, b, words[15], 16, 530742520); b = hh(b, c, d, a, words[2], 23, -995338651);
-        a = ii(a, b, c, d, words[0], 6, -198630844); d = ii(d, a, b, c, words[7], 10, 1126891415);
-        c = ii(c, d, a, b, words[14], 15, -1416354905); b = ii(b, c, d, a, words[5], 21, -57434055);
-        a = ii(a, b, c, d, words[12], 6, 1700485571); d = ii(d, a, b, c, words[3], 10, -1894986606);
-        c = ii(c, d, a, b, words[10], 15, -1051523); b = ii(b, c, d, a, words[1], 21, -2054922799);
-        a = ii(a, b, c, d, words[8], 6, 1873313359); d = ii(d, a, b, c, words[15], 10, -30611744);
-        c = ii(c, d, a, b, words[6], 15, -1560198380); b = ii(b, c, d, a, words[13], 21, 1309151649);
-        a = ii(a, b, c, d, words[4], 6, -145523070); d = ii(d, a, b, c, words[11], 10, -1120210379);
-        c = ii(c, d, a, b, words[2], 15, 718787259); b = ii(b, c, d, a, words[9], 21, -343485551);
-        return [add32(a, olda), add32(b, oldb), add32(c, oldc), add32(d, oldd)];
-      }
-      const bytes = Array.from(new TextEncoder().encode(input));
-      const bitLen = bytes.length * 8;
-      bytes.push(0x80);
-      while (bytes.length % 64 !== 56) bytes.push(0);
-      for (let i = 0; i < 8; i++) bytes.push(Math.floor(bitLen / Math.pow(2, 8 * i)) & 255);
-      let state = [1732584193, -271733879, -1732584194, 271733878];
-      for (let i = 0; i < bytes.length; i += 64) {
-        const words = [];
-        for (let j = 0; j < 64; j += 4) {
-          words.push(bytes[i + j] | (bytes[i + j + 1] << 8) | (bytes[i + j + 2] << 16) | (bytes[i + j + 3] << 24));
-        }
-        state = block(words, state);
-      }
-      return state.map(n => {
-        let out = "";
-        for (let i = 0; i < 4; i++) out += ((n >>> (8 * i)) & 255).toString(16).padStart(2, "0");
-        return out;
-      }).join("");
-    }
-
-    function bytesToBase64(bytes) {
-      let binary = "";
-      const chunkSize = 0x8000;
-      for (let i = 0; i < bytes.length; i += chunkSize) {
-        binary += String.fromCharCode(...bytes.slice(i, i + chunkSize));
-      }
-      return btoa(binary);
-    }
-
-    function base64ToBytes(base64) {
-      const binary = atob(base64);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-      return bytes;
-    }
-
-    function wordArrayToBytes(wordArray) {
-      const bytes = new Uint8Array(wordArray.sigBytes);
-      for (let i = 0; i < wordArray.sigBytes; i++) {
-        bytes[i] = (wordArray.words[i >>> 2] >>> (24 - (i % 4) * 8)) & 255;
-      }
-      return bytes;
-    }
-
-    function bytesToWordArray(bytes) {
-      const words = [];
-      for (let i = 0; i < bytes.length; i++) {
-        words[i >>> 2] |= bytes[i] << (24 - (i % 4) * 8);
-      }
-      return CryptoJS.lib.WordArray.create(words, bytes.length);
-    }
-
-    function decodeJsonFromBytes(bytes) {
-      const starts = [];
-      for (let i = 0; i < bytes.length; i++) {
-        if (bytes[i] === 0x7b || bytes[i] === 0x5b) starts.push(i);
-      }
-      for (const start of starts) {
-        const text = new TextDecoder().decode(bytes.slice(start)).trim();
-        try {
-          return JSON.parse(text);
-        } catch {}
-        if (text.startsWith("{")) {
-          try {
-            return JSON.parse("[" + text);
-          } catch {}
-          try {
-            return JSON.parse("[" + text + "]");
-          } catch {}
-        }
-      }
-      const text = new TextDecoder().decode(bytes).replace(/\0/g, "").trim();
-      const courseStart = text.match(/^\d+,\s*"class_num"\s*:/);
-      if (courseStart) {
-        try {
-          return JSON.parse('[{"class_id":136' + text);
-        } catch {}
-      }
-      return null;
-    }
-
-    const CryptoAdapter = (() => {
-      const textEncoder = new TextEncoder();
-      const textDecoder = new TextDecoder();
-      const keyModes = {
-        utf8: (text) => textEncoder.encode(String(text || "")),
-        base64: (text) => base64ToBytes(String(text || "")),
-        base64Pad16: (text) => {
-          const bytes = base64ToBytes(String(text || ""));
-          if (bytes.length === 16) return bytes;
-          const padded = new Uint8Array(16);
-          padded.set(bytes.slice(0, 16));
-          return padded;
-        }
-      };
-
-      function assertCredential(cryptoKey) {
-        if (!cryptoKey || cryptoKey.invalid) {
-          throw new Error("缺少或无法解析 crypto_key_info，请粘贴 CMD 输出的 Credential");
-        }
-      }
-
-      function buildStrategies(cryptoKey, purpose) {
-        const isOfficial = cryptoKey.type === "wechat_official"
-          || (!cryptoKey.type && Number(cryptoKey.version) >= 2);
-        if (purpose === "encrypt") {
-          return isOfficial
-            ? [{ name: "wechat_official", keyMode: "base64", ivMode: "base64Pad16" }]
-            : [{ name: "v1/utf8-key+utf8-iv", keyMode: "utf8", ivMode: "utf8" }];
-        }
-        return isOfficial
-          ? [{ name: "wechat_official", keyMode: "base64", ivMode: "base64Pad16" }]
-          : [
-              { name: "v1/utf8-key+utf8-iv", keyMode: "utf8", ivMode: "utf8" },
-              { name: "v1/base64-key+utf8-iv", keyMode: "base64", ivMode: "utf8" },
-              { name: "v1/base64-key+base64-iv", keyMode: "base64", ivMode: "base64" }
-            ];
-      }
-
-      function parseBytes(value, mode) {
-        const parser = keyModes[mode];
-        if (!parser) throw new Error(`未知编码模式：${mode}`);
-        return parser(value);
-      }
-
-      function ensureAesLengths(keyBytes, ivBytes) {
-        if (![16, 24, 32].includes(keyBytes.length)) {
-          throw new Error(`AES key 长度异常：${keyBytes.length} bytes`);
-        }
-        if (ivBytes.length !== 16) {
-          throw new Error(`AES-CBC iv 长度异常：${ivBytes.length} bytes`);
-        }
-      }
-
-      async function importKey(cryptoKey, strategy) {
-        assertCredential(cryptoKey);
-        const keyBytes = parseBytes(cryptoKey.encryptKey, strategy.keyMode);
-        const ivBytes = parseBytes(cryptoKey.iv, strategy.ivMode);
-        ensureAesLengths(keyBytes, ivBytes);
-        return crypto.subtle.importKey("raw", keyBytes, { name: "AES-CBC" }, false, ["encrypt", "decrypt"])
-          .then((subtleKey) => ({ subtleKey, ivBytes }));
-      }
-
-      function normalizeCipherText(encData) {
-        let text = String(encData || "");
-        let ivOverride = null;
-        if (text.includes(":")) {
-          const parts = text.split(":");
-          if (parts.length >= 2) {
-            ivOverride = base64ToBytes(parts[0]);
-            text = parts.slice(1).join(":");
-          }
-        }
-        return { bytes: base64ToBytes(text), ivOverride };
-      }
-
-      function decodePlainBytes(bytes) {
-        const starts = [];
-        for (let i = 0; i < bytes.length; i++) {
-          if (bytes[i] === 0x7b || bytes[i] === 0x5b) starts.push(i);
-        }
-        for (const start of starts) {
-          const text = textDecoder.decode(bytes.slice(start)).replace(/\0+$/g, "").trim();
-          try { return JSON.parse(text); } catch {}
-        }
-        const text = textDecoder.decode(bytes).replace(/\0/g, "").trim();
-        try { return JSON.parse(text); } catch {}
-        return null;
-      }
-
-      async function encrypt(body, cryptoKey) {
-        assertCredential(cryptoKey);
-        const strategy = buildStrategies(cryptoKey, "encrypt")[0];
-        const aes = await importKey(cryptoKey, strategy);
-        const encrypted = await crypto.subtle.encrypt(
-          { name: "AES-CBC", iv: aes.ivBytes },
-          aes.subtleKey,
-          textEncoder.encode(JSON.stringify(body))
-        );
-        return bytesToBase64(new Uint8Array(encrypted));
-      }
-
-      async function decryptResponse(responseBody, cryptoKey, signSecret) {
-        if (!responseBody || !responseBody.encData || !cryptoKey || cryptoKey.invalid) return responseBody;
-        if (responseBody.code !== undefined && ![0, 200].includes(Number(responseBody.code))) {
-          return responseBody;
-        }
-        const encData = String(responseBody.encData || "");
-        if (encData.length < 24) throw new Error("加密响应格式异常");
-        if (responseBody.mac) {
-          const expectedMac = signSecret ? await hmacSha256(encData, signSecret) : "";
-          if (expectedMac !== String(responseBody.mac).toLowerCase()) {
-            throw new Error("响应 MAC 校验失败");
-          }
-        }
-
-        const errors = [];
-        for (const strategy of buildStrategies(cryptoKey, "decrypt")) {
-          try {
-            const aes = await importKey(cryptoKey, strategy);
-            const cipher = normalizeCipherText(encData);
-            const decrypted = await crypto.subtle.decrypt(
-              { name: "AES-CBC", iv: cipher.ivOverride || aes.ivBytes },
-              aes.subtleKey,
-              cipher.bytes
-            );
-            const parsed = decodePlainBytes(new Uint8Array(decrypted));
-            if (parsed) {
-              const result = { ...responseBody };
-              delete result.encData;
-              delete result.mac;
-              if (result.total !== undefined) result.rows = parsed;
-              else result.data = parsed;
-              return result;
-            }
-          } catch (err) {
-            errors.push(`${strategy.name}: ${err.message}`);
-          }
-        }
-        throw new Error(errors.join("; ") || "未能解析加密响应");
-      }
-
-      return { encrypt, decryptResponse };
-    })();
-
-    async function encryptRequestBody(body, cryptoKey) {
-      return CryptoAdapter.encrypt(body, cryptoKey);
-    }
-
-    async function decryptResponseBody(responseBody, cryptoKey, account) {
-      return CryptoAdapter.decryptResponse(
-        responseBody,
-        cryptoKey,
-        signSecretCache.get(account.token) || ""
-      );
-    }
-
-    const platformHeader = "wechat_mp";
-    const signSecretCache = new Map();
-
-    async function parseResponse(res) {
-      const text = await res.text();
-      let parsed = text;
-      try { parsed = JSON.parse(text); } catch {}
-      return { status: res.status, ok: res.ok, body: parsed };
-    }
-
-    async function getSignSecret(token) {
-      if (signSecretCache.has(token)) return signSecretCache.get(token);
-      const res = await fetch(endpoint("/wechat/checkToken"), {
-        method: "GET",
-        headers: {
-          Authorization: "Bearer " + token,
-          "Content-Type": "application/json",
-          "X-Platform": platformHeader
-        }
-      });
-      const result = await parseResponse(res);
-      const body = result.body || {};
-      const secret = body.data && body.data.signSecret;
-      if (!result.ok || !(body.code === 200 || body.code === 0) || !secret) {
-        throw new Error((body.msg || body.message || "checkToken 未返回 signSecret") + ` (HTTP ${result.status})`);
-      }
-      signSecretCache.set(token, secret);
-      return secret;
-    }
-
-    function generateNonce() {
-      const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-      let out = "";
-      for (let i = 0; i < 8; i++) out += chars.charAt(Math.floor(Math.random() * chars.length));
-      return out;
-    }
-
-    async function hmacSha256(text, secret) {
-      const encoder = new TextEncoder();
-      const key = await crypto.subtle.importKey(
-        "raw",
-        encoder.encode(secret),
-        { name: "HMAC", hash: "SHA-256" },
-        false,
-        ["sign"]
-      );
-      const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(text));
-      return Array.from(new Uint8Array(signature), byte => byte.toString(16).padStart(2, "0")).join("");
-    }
-
-    async function signedHeaders(method, path, account, { bodyHash = "", query = "", encrypted = true } = {}) {
-      const signSecret = await getSignSecret(account.token);
-      const timestamp = Date.now().toString();
-      const nonce = generateNonce();
-      const sign = await hmacSha256(
-        `${method.toUpperCase()}|${path}|${query}|${bodyHash}|${timestamp}|${nonce}|${signSecret}`,
-        signSecret
-      );
-      const headers = {
-        Authorization: "Bearer " + account.token,
-        "Content-Type": "application/json",
-        "X-Platform": platformHeader,
-        "X-Timestamp": timestamp,
-        "X-Sign-Version": "3",
-        "X-Nonce": nonce,
-        "X-Body-Hash": bodyHash,
-        "X-Sign": sign
-      };
-      if (encrypted && account.cryptoKey && !account.cryptoKey.invalid) {
-        headers["X-Encrypt-Type"] = account.cryptoKey.type || "wechat_official";
-        headers["X-Enc-Version"] = String(account.cryptoKey.version || 1);
-      }
-      return headers;
-    }
-
-    function shouldRetrySignedRequest(result, token) {
-      const body = result && result.body;
-      const code = body && Number(body.code);
-      const msg = body && String(body.msg || body.message || "");
-      if (code === 4011 || code === 4014 || /签名|signSecret/i.test(msg)) {
-        signSecretCache.delete(token);
-        return true;
-      }
-      return code === 4012 || code === 4013 || /请求已过期|已被使用/.test(msg);
-    }
-
     function requestSucceeded(result) {
       return Boolean(result && result.ok && result.body
         && [0, 200].includes(Number(result.body.code)));
     }
 
-    function requestPreview() {
-      const firstAccount = allTokens()[0];
-      const encVersion = firstAccount && firstAccount.cryptoKey && !firstAccount.cryptoKey.invalid
-        ? String(firstAccount.cryptoKey.version || 1)
-        : "<crypto_key_info.version>";
-      return {
-        url: endpoint("/wechat/checkIn/checkInWithLocation"),
+    async function apiRequest(action, account, body = {}) {
+      const response = await fetch("/api/" + action, {
         method: "POST",
-        headers: {
-          Authorization: "Bearer <每个账号的 token>",
-          "Content-Type": "application/json",
-          "X-Platform": "wechat_mp",
-          "X-Timestamp": "<当前毫秒时间戳>",
-          "X-Sign-Version": "3",
-          "X-Nonce": "<8位随机字符串>",
-          "X-Body-Hash": "MD5(encData).slice(0,16)",
-          "X-Encrypt-Type": "wechat_official",
-          "X-Enc-Version": encVersion,
-          "X-Sign": "HMAC-SHA256(POST|/wechat/checkIn/checkInWithLocation||X-Body-Hash|X-Timestamp|X-Nonce|signSecret, signSecret)"
-        },
-        accountCount: allTokens().length,
-        plainBody: bodyObject(),
-        wireBody: { encData: "<由 crypto_key_info 加密 plainBody 得到>" }
-      };
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ credential: account.raw, ...body })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "本地请求失败");
+      return result;
+    }
+
+    function requestPreview() {
+      return { accountCount: allTokens().length, ...bodyObject() };
     }
 
     function updatePreview() {
@@ -1020,53 +628,6 @@
       if (!/^\d{6}$/.test(code)) throw new Error("签到码必须是 6 位数字");
       if (!$("lat").value.trim() || !$("lng").value.trim()) throw new Error("缺少经纬度");
       return { cnum, location };
-    }
-
-    async function postJson(path, body, account = allTokens()[0]) {
-      if (!account || !account.cryptoKey || account.cryptoKey.invalid) {
-        throw new Error("缺少有效 crypto_key_info，无法生成新版加密请求");
-      }
-      const encData = await encryptRequestBody(body, account.cryptoKey);
-      const bodyHash = md5(encData).slice(0, 16);
-      const wireBody = JSON.stringify({ encData });
-      let res = await fetch(endpoint(path), {
-        method: "POST",
-        headers: await signedHeaders("POST", path, account, { bodyHash }),
-        body: wireBody
-      });
-      let result = await parseResponse(res);
-      result.body = await decryptResponseBody(result.body, account.cryptoKey, account);
-      if (shouldRetrySignedRequest(result, account.token)) {
-        res = await fetch(endpoint(path), {
-          method: "POST",
-          headers: await signedHeaders("POST", path, account, { bodyHash }),
-          body: wireBody
-        });
-        result = await parseResponse(res);
-        result.body = await decryptResponseBody(result.body, account.cryptoKey, account);
-      }
-      return result;
-    }
-
-    async function getJson(path, account = allTokens()[0]) {
-      if (!account || !account.cryptoKey || account.cryptoKey.invalid) {
-        throw new Error("缺少有效 crypto_key_info，无法读取新版加密响应");
-      }
-      let res = await fetch(endpoint(path), {
-        method: "GET",
-        headers: await signedHeaders("GET", path, account)
-      });
-      let result = await parseResponse(res);
-      result.body = await decryptResponseBody(result.body, account.cryptoKey, account);
-      if (shouldRetrySignedRequest(result, account.token)) {
-        res = await fetch(endpoint(path), {
-          method: "GET",
-          headers: await signedHeaders("GET", path, account)
-        });
-        result = await parseResponse(res);
-        result.body = await decryptResponseBody(result.body, account.cryptoKey, account);
-      }
-      return result;
     }
 
     const CourseStore = (() => {
@@ -1128,7 +689,7 @@
       courseMap.clear();
       for (const account of tokens) {
         try {
-          const result = await getJson("/wechat/checkIn/myCourses", account);
+          const result = await apiRequest("courses", account);
           const ok = requestSucceeded(result);
           const rows = ok ? CourseStore.extractRows(result.body) : [];
           if (ok) CourseStore.addRows(rows, account.label);
@@ -1151,38 +712,6 @@
       setStatus("已复制");
     }
 
-    async function curlCommand() {
-      const path = "/wechat/checkIn/checkInWithLocation";
-      const commands = [];
-      for (const account of allTokens()) {
-        if (!account.cryptoKey || account.cryptoKey.invalid) {
-          throw new Error(`${account.label} 缺少有效 crypto_key_info`);
-        }
-        const plainBody = bodyObject();
-        const encData = await encryptRequestBody(plainBody, account.cryptoKey);
-        const bodyHash = md5(encData).slice(0, 16);
-        const body = JSON.stringify({ encData }).replace(/'/g, "'\\''");
-        const headers = await signedHeaders("POST", path, account, { bodyHash });
-        commands.push([
-          "# " + account.label,
-          "curl -X POST",
-          `'${endpoint(path)}'`,
-          "-H 'Authorization: Bearer " + account.token.replace(/'/g, "'\\''") + "'",
-          "-H 'Content-Type: application/json'",
-          "-H 'X-Platform: " + platformHeader + "'",
-          "-H 'X-Timestamp: " + headers["X-Timestamp"] + "'",
-          "-H 'X-Sign-Version: " + headers["X-Sign-Version"] + "'",
-          "-H 'X-Nonce: " + headers["X-Nonce"] + "'",
-          "-H 'X-Body-Hash: " + headers["X-Body-Hash"] + "'",
-          "-H 'X-Encrypt-Type: " + headers["X-Encrypt-Type"] + "'",
-          "-H 'X-Enc-Version: " + headers["X-Enc-Version"] + "'",
-          "-H 'X-Sign: " + headers["X-Sign"] + "'",
-          `--data '${body}'`
-        ].join(" "));
-      }
-      return commands.join("\n\n");
-    }
-
     function applyTokenPaneCount() {
       tokenPaneCount = tokenPaneCount >= 4 ? 4 : tokenPaneCount >= 2 ? 2 : 1;
       $("tokenGrid").className = `token-grid count-${tokenPaneCount}${tokenPaneCount > 1 ? " multi" : ""}`;
@@ -1199,7 +728,6 @@
       localStorage.setItem(storageKeys.token, rawCredentialAt(0));
       localStorage.setItem(storageKeys.tokens, JSON.stringify(Array.from({ length: maxTokenPanes }, (_, i) => rawCredentialAt(i))));
       localStorage.setItem(storageKeys.tokenPaneCount, String(tokenPaneCount));
-      localStorage.setItem(storageKeys.baseUrl, $("baseUrl").value.trim());
       localStorage.setItem(storageKeys.lat, $("lat").value.trim());
       localStorage.setItem(storageKeys.lng, $("lng").value.trim());
       localStorage.setItem(storageKeys.lastCourse, $("courseSelect").value);
@@ -1223,7 +751,6 @@
       if (savedTokens.slice(2, 4).some(Boolean)) tokenPaneCount = 4;
       else if (savedTokens[1]) tokenPaneCount = Math.max(tokenPaneCount, 2);
       applyTokenPaneCount();
-      $("baseUrl").value = localStorage.getItem(storageKeys.baseUrl) || $("baseUrl").value;
       const savedLat = localStorage.getItem(storageKeys.lat) || "";
       const savedLng = localStorage.getItem(storageKeys.lng) || "";
       const isOldDefault = Math.abs(parseFloat(savedLat) - oldDefaultCenter[0]) < 0.000001
@@ -1595,10 +1122,11 @@
         updatePreview();
         const body = validateSignInput();
         const tokens = allTokens();
+        if (!window.confirm(`确认使用 ${tokens.length} 个账号发送签到请求？`)) return;
         setStatus(`正在为 ${tokens.length} 个账号发送签到请求...`);
         const results = await Promise.all(tokens.map(async (account) => {
           try {
-            const result = await postJson("/wechat/checkIn/checkInWithLocation", body, account);
+            const result = await apiRequest("checkin", account, { ...body, confirmSend: true });
             return { account: account.label, ok: requestSucceeded(result), result };
           } catch (err) {
             return { account: account.label, ok: false, error: err.message };
@@ -1642,10 +1170,6 @@
       await copyText(JSON.stringify(bodyObject(), null, 2));
     });
 
-    $("copyCurlBtn").addEventListener("click", async () => {
-      updatePreview();
-      await copyText(await curlCommand());
-    });
     $("zoomInBtn").addEventListener("click", () => {
       mapState.zoom = clampZoom(mapState.zoom + 1);
       renderMap();
@@ -1692,7 +1216,6 @@
       $(id).addEventListener("input", () => {
         updatePreview();
         if (id === "lat" || id === "lng") updateQuickLocationSelection();
-        if (id === "baseUrl") scheduleAutoCourses();
       });
     });
     $("courseSelect").addEventListener("change", () => fillCourseFromValue($("courseSelect").value));

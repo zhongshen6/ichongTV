@@ -3,14 +3,18 @@
 先运行 `双击运行_获取token.cmd`，从小程序提取当前的 Credential。适配器直接加载
 `local_wxapkg/wxapkg_out` 下版本号最高的 `appservice.app.js`，调用其中的
 `myCourses` 和 `checkInWithLocation`，由原版代码完成取签名密钥、加密、签名、
-发送、响应解密与重试。它不会使用 HTML 里的重建签名流程。
+发送、响应解密与重试。HTML 通过 `miniapp_web.js` 接入此适配器，不再重建签名。
 
 本机需安装 Node.js。打开此目录中的终端：
 
 ```text
+node miniapp_web.js
 node miniapp_adapter.js courses
 node miniapp_adapter.js checkin "class_num-teacherId-123456" "纬度:29.00经度:106.00" --send
 ```
+
+第一条命令启动本地页面，浏览器打开终端显示的 `127.0.0.1` 地址。不要直接打开
+HTML 文件；浏览器只请求本机服务，服务再调用原版模块发送请求。
 
 运行后再粘贴 CMD 输出的整条 Credential 并回车。终端交互输入不回显，也不会保存
 Credential。管道标准输入也可用于本地自动化，但不要将凭据写入命令参数、
